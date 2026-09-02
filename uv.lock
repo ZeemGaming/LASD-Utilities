@@ -571,11 +571,15 @@ name = "repl-nix-workspace"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "discord-py" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "discord-py" }]
+requires-dist = [
+    { name = "aiohttp" },
+    { name = "discord-py" },
+]
 
 [[package]]
 name = "typing-extensions"

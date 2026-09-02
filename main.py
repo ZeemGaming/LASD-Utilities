@@ -3,9 +3,9 @@ import re
 import time
 import random
 import datetime
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import asyncio
 from zoneinfo import ZoneInfo
+from aiohttp import web
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -54,45 +54,26 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-class BotHealthHandler(BaseHTTPRequestHandler):
-    """Serves the bot's plain-text health page."""
-
-    def _send_text(self, status: int, body: str):
-        body_bytes = body.encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.send_header("Content-Length", str(len(body_bytes)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body_bytes)
-
-    def do_GET(self):
-        if self.path.split("?", 1)[0] == "/":
-            self._send_text(200, "Bot is alive!")
-        else:
-            self._send_text(404, "Not found")
-
-    def do_HEAD(self):
-        if self.path.split("?", 1)[0] == "/":
-            self._send_text(200, "Bot is alive!")
-        else:
-            self._send_text(404, "Not found")
-
-    def log_message(self, format, *args):
-        return
-
-
-def start_web_server() -> ThreadingHTTPServer:
-    """Starts the health page without blocking the Discord bot."""
-    server = ThreadingHTTPServer(("0.0.0.0", WEB_PORT), BotHealthHandler)
-    thread = threading.Thread(
-        target=server.serve_forever,
-        name="bot-health-server",
-        daemon=True
+async def health_handler(request: web.Request) -> web.Response:
+    """Returns the plaintext health response for GET and HEAD requests."""
+    return web.Response(
+        text="Bot is alive!",
+        content_type="text/plain"
     )
-    thread.start()
+
+
+async def start_web_server() -> web.AppRunner:
+    """Starts the health server on the same async loop as the Discord bot."""
+    app = web.Application()
+    app.router.add_get("/", health_handler, allow_head=False)
+    app.router.add_head("/", health_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", WEB_PORT)
+    await site.start()
     print(f"Health website listening on port {WEB_PORT}.")
-    return server
+    return runner
 
 
 # Active shifts memory: { user_id: { "start_time": float, "original_nick": str, "break_time": float, "on_break": bool, "break_start": float } }
@@ -1116,9 +1097,12 @@ token = os.getenv("DISCORD_TOKEN")
 if not token:
     raise ValueError("DISCORD_TOKEN environment variable not set in Replit Secrets.")
 
-web_server = start_web_server()
-try:
-    bot.run(token)
-finally:
-    web_server.shutdown()
-    web_server.server_close()
+async def run_application():
+    web_runner = await start_web_server()
+    try:
+        await bot.start(token)
+    finally:
+        await web_runner.cleanup()
+
+
+asyncio.run(run_application())
