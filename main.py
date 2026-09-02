@@ -113,7 +113,7 @@ async def apply_on_shift_nick(member: discord.Member, original_nick: str) -> boo
     try:
         await member.edit(nick=new_nick)
         return True
-    except discord.Forbidden:
+    except (discord.Forbidden, discord.HTTPException):
         return False
 
 
@@ -219,6 +219,16 @@ async def on_ready():
 async def shift_start(interaction: discord.Interaction):
     user_id = interaction.user.id
 
+    if not interaction.guild or not isinstance(interaction.user, discord.Member):
+        embed = discord.Embed(
+            title="Shift Error",
+            description="Shift commands can only be used inside the staff server.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
     if user_id in active_shifts:
         embed = discord.Embed(
             title="Shift Error",
@@ -228,6 +238,8 @@ async def shift_start(interaction: discord.Interaction):
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
+
+    await interaction.response.defer()
 
     original_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
 
@@ -251,7 +263,7 @@ async def shift_start(interaction: discord.Interaction):
     else:
         embed.set_footer(text="Made by zeemonyt")
 
-    await interaction.response.send_message(embed=embed)
+    await interaction.followup.send(embed=embed)
 
 
 @bot.tree.command(name="shift-break", description="Pause or resume your active shift for a break.")
