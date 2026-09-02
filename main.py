@@ -174,12 +174,12 @@ async def restore_nick(member: discord.Member, original_nick: str) -> bool:
         if current_nick.startswith(PREFIX):
             await member.edit(nick=original_nick)
         return True
-    except discord.Forbidden:
+    except (discord.Forbidden, discord.HTTPException):
         return False
 
 
 async def check_for_shift_farming():
-    """Warn once when an active shift exceeds the 10-hour threshold."""
+    """Automatically end and report active shifts exceeding 10 hours."""
     for user_id in list(shift_farming_alerted):
         if user_id not in active_shifts:
             shift_farming_alerted.discard(user_id)
@@ -192,12 +192,33 @@ async def check_for_shift_farming():
         if elapsed_seconds <= SHIFT_FARMING_THRESHOLD_SECONDS or user_id in shift_farming_alerted:
             continue
 
+        end_time = time.time()
+        total_break_time = shift_data["break_time"]
+        if shift_data["on_break"]:
+            total_break_time += end_time - shift_data["break_start"]
+
+        active_duty_time = max(
+            0.0,
+            end_time - shift_data["start_time"] - total_break_time
+        )
+        last_shifts[user_id] = active_duty_time
+        shift_leaderboard_data[user_id] = (
+            shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
+        )
+        active_shifts.pop(user_id, None)
+
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(user_id) if guild else None
+        if member:
+            await restore_nick(member, shift_data["original_nick"])
+
         warning_sent = False
         if warning_channel:
             try:
                 await warning_channel.send(
-                    f"<@{user_id}> Your shift has been active for over 10 hours and may be shift farming. "
-                    "If this is a legitimate shift, please end and restart it."
+                    f"<@{user_id}> Your shift was automatically ended after exceeding 10 hours "
+                    "because it may have been shift farming. If this was a legitimate shift, "
+                    "you must start a new shift with `/shift-start`."
                 )
                 warning_sent = True
             except (discord.Forbidden, discord.HTTPException):
@@ -208,9 +229,10 @@ async def check_for_shift_farming():
                 title="Possible Shift Farming Detected",
                 description=(
                     f"Possible shift farmer/farming detected for <@{user_id}>.\n"
-                    f"**Active Shift Duration:** `{format_duration(elapsed_seconds)}`\n"
-                    "A warning was sent to the staff member. If the shift is legitimate, "
-                    "they should end and restart it."
+                    f"**Shift Duration Before Auto-End:** `{format_duration(elapsed_seconds)}`\n"
+                    f"**Recorded Active Duty Time:** `{format_duration(active_duty_time)}`\n"
+                    "The shift was automatically ended. The staff member must start a new "
+                    "shift if this was legitimate."
                 ),
                 color=discord.Color.orange()
             )
