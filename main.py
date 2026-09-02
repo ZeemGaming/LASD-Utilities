@@ -16,6 +16,8 @@ QUOTA_LOG_CHANNEL_ID = 1544780775948419082
 STRIKE_LOG_CHANNEL_ID = 1538076682664017944
 ARREST_LOG_CHANNEL_ID = 1538076682441724001
 CITE_LOG_CHANNEL_ID = 1538076682441724002
+SHIFT_FARMING_ALERT_CHANNEL_ID = 1544201906908430436
+SHIFT_FARMING_THRESHOLD_SECONDS = 10 * 60 * 60
 QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
 WEB_PORT = int(os.getenv("PORT", "5000"))
 
@@ -108,6 +110,9 @@ user_strikes = {}
 # Flag to prevent multiple reset triggers within the same minute
 has_reset_this_week = False
 
+# User IDs already warned about an active shift lasting over 10 hours
+shift_farming_alerted = set()
+
 
 def format_duration(seconds: float) -> str:
     """Formats seconds into hours, minutes, and seconds."""
@@ -173,12 +178,64 @@ async def restore_nick(member: discord.Member, original_nick: str) -> bool:
         return False
 
 
+async def check_for_shift_farming():
+    """Warn once when an active shift exceeds the 10-hour threshold."""
+    for user_id in list(shift_farming_alerted):
+        if user_id not in active_shifts:
+            shift_farming_alerted.discard(user_id)
+
+    warning_channel = bot.get_channel(SHIFT_FARMING_ALERT_CHANNEL_ID)
+    log_channel = bot.get_channel(STRIKE_LOG_CHANNEL_ID)
+
+    for user_id, shift_data in list(active_shifts.items()):
+        elapsed_seconds = time.time() - shift_data["start_time"]
+        if elapsed_seconds <= SHIFT_FARMING_THRESHOLD_SECONDS or user_id in shift_farming_alerted:
+            continue
+
+        warning_sent = False
+        if warning_channel:
+            try:
+                await warning_channel.send(
+                    f"<@{user_id}> Your shift has been active for over 10 hours and may be shift farming. "
+                    "If this is a legitimate shift, please end and restart it."
+                )
+                warning_sent = True
+            except (discord.Forbidden, discord.HTTPException):
+                print(f"Error: Could not send shift-farming warning for user {user_id}.")
+
+        if log_channel:
+            log_embed = discord.Embed(
+                title="Possible Shift Farming Detected",
+                description=(
+                    f"Possible shift farmer/farming detected for <@{user_id}>.\n"
+                    f"**Active Shift Duration:** `{format_duration(elapsed_seconds)}`\n"
+                    "A warning was sent to the staff member. If the shift is legitimate, "
+                    "they should end and restart it."
+                ),
+                color=discord.Color.orange()
+            )
+            log_embed.set_footer(text="Made by zeemonyt")
+            try:
+                await log_channel.send(
+                    embed=log_embed,
+                    allowed_mentions=discord.AllowedMentions.none()
+                )
+                warning_sent = True
+            except (discord.Forbidden, discord.HTTPException):
+                print(f"Error: Could not log possible shift farming for user {user_id}.")
+
+        if warning_sent or (not warning_channel and not log_channel):
+            shift_farming_alerted.add(user_id)
+
+
 # --- AUTOMATED WEEKLY RESET TASK (12 AM Saturday CST) ---
 @tasks.loop(seconds=30)
 async def weekly_quota_reset():
     global has_reset_this_week
     cst_zone = ZoneInfo("America/Chicago")
     now_cst = datetime.datetime.now(cst_zone)
+
+    await check_for_shift_farming()
 
     # Saturday is weekday 5. 12:00 AM corresponds to hour 0, minute 0.
     if now_cst.weekday() == 5 and now_cst.hour == 0 and now_cst.minute == 0:
