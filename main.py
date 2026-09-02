@@ -13,6 +13,7 @@ GUILD_ID = 1538076681565241384
 QUOTA_LOG_CHANNEL_ID = 1544780775948419082
 STRIKE_LOG_CHANNEL_ID = 1538076682664017944
 ARREST_LOG_CHANNEL_ID = 1538076682441724001
+CITE_LOG_CHANNEL_ID = 1538076682441724002
 QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
 
 PREFIX = "On Shift | "
@@ -871,6 +872,17 @@ async def cite(
     court_date: str = None,
     image: discord.Attachment = None
 ):
+    channel = interaction.guild.get_channel(CITE_LOG_CHANNEL_ID) if interaction.guild else None
+    if not channel:
+        embed = discord.Embed(
+            title="Citation Error",
+            description=f"Could not find the target citation channel (`{CITE_LOG_CHANNEL_ID}`).",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
     content = (
         f"User: {user}\n"
         f"Reason: {reason}\n"
@@ -894,18 +906,34 @@ async def cite(
 
     try:
         if file:
-            await interaction.response.send_message(content=content, file=file)
+            await channel.send(
+                content=content,
+                file=file,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
         else:
-            await interaction.response.send_message(content=content)
+            await channel.send(
+                content=content,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
     except discord.Forbidden:
         embed = discord.Embed(
             title="Citation Error",
-            description="Bot is missing permissions to send the citation or image.",
+            description=f"Bot is missing permissions to send the citation or image in <#{CITE_LOG_CHANNEL_ID}>.",
             color=discord.Color.red()
         )
         embed.set_footer(text="Made by zeemonyt")
         if not interaction.response.is_done():
             await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    embed = discord.Embed(
+        title="Citation Successfully Logged",
+        description=f"Logged citation for Roblox user **{user}** in <#{CITE_LOG_CHANNEL_ID}>.",
+        color=discord.Color.green()
+    )
+    embed.set_footer(text="Made by zeemonyt")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # --- ARREST COMMAND ---
