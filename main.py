@@ -128,27 +128,6 @@ async def restore_nick(member: discord.Member, original_nick: str) -> bool:
         return False
 
 
-async def log_quota_failure(guild: discord.Guild, user: discord.Member, current_time: float):
-    """Logs to the quota channel if user has not met the required 2 hours of shift time."""
-    if current_time < QUOTA_REQUIRED_SECONDS:
-        channel = guild.get_channel(QUOTA_LOG_CHANNEL_ID)
-        if channel:
-            embed = discord.Embed(
-                title="⚠️ Quota Unfulfilled",
-                description=(
-                    f"**Staff Member:** {user.mention} (`{user.id}`)\n"
-                    f"**Current Total Shift Time:** `{format_duration(current_time)}` / `02h 00m 00s`\n"
-                    f"**Status:** Failed to meet 2-hour minimum requirement."
-                ),
-                color=discord.Color.red()
-            )
-            embed.set_footer(text="Made by zeemonyt")
-            try:
-                await channel.send(embed=embed)
-            except discord.Forbidden:
-                print(f"Error: Lacking permissions to send message in quota channel {QUOTA_LOG_CHANNEL_ID}")
-
-
 # --- AUTOMATED WEEKLY RESET TASK (12 AM Saturday CST) ---
 @tasks.loop(seconds=30)
 async def weekly_quota_reset():
@@ -360,9 +339,6 @@ async def shift_end(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed)
 
-    if interaction.guild:
-        await log_quota_failure(interaction.guild, interaction.user, total_cumulative)
-
 
 @bot.tree.command(name="shift-leaderboard", description="View total logged shift time across all staff.")
 async def shift_leaderboard(interaction: discord.Interaction):
@@ -490,9 +466,6 @@ async def shift_admin(
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed)
 
-        if interaction.guild:
-            await log_quota_failure(interaction.guild, user, total_cumulative)
-
     elif action == "add_time":
         if not time_input:
             embed = discord.Embed(
@@ -567,9 +540,6 @@ async def shift_admin(
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed)
 
-        if interaction.guild:
-            await log_quota_failure(interaction.guild, user, new_total)
-
     elif action == "clear_last":
         if target_id in active_shifts:
             shift_data = active_shifts.pop(target_id)
@@ -588,8 +558,6 @@ async def shift_admin(
                 description=f"Removed last shift duration (`{format_duration(last_duration)}`) from {user.mention}'s leaderboard profile.",
                 color=discord.Color.dark_red()
             )
-            if interaction.guild:
-                await log_quota_failure(interaction.guild, user, new_total)
         else:
             embed = discord.Embed(
                 title="Admin Action Error",
@@ -618,9 +586,6 @@ async def shift_admin(
         )
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed)
-
-        if interaction.guild:
-            await log_quota_failure(interaction.guild, user, 0.0)
 
 
 # --- STRIKE / INFRACTION COMMAND ---
