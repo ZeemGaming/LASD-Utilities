@@ -1007,7 +1007,7 @@ async def arrest(
         color=discord.Color.green()
     )
     embed.set_footer(text="Made by zeemonyt")
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 # --- RUN BOT ---
