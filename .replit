@@ -1,1 +1,14 @@
 modules = ["python-3.11"]
+
+[nix]
+
+[workflows]
+
+[[workflows.workflow]]
+name = "Run"
+mode = "sequential"
+author = 55553648
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python main.py"
