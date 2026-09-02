@@ -3,6 +3,8 @@ import re
 import time
 import random
 import datetime
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from zoneinfo import ZoneInfo
 import discord
 from discord import app_commands
@@ -15,6 +17,7 @@ STRIKE_LOG_CHANNEL_ID = 1538076682664017944
 ARREST_LOG_CHANNEL_ID = 1538076682441724001
 CITE_LOG_CHANNEL_ID = 1538076682441724002
 QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
+WEB_PORT = int(os.getenv("PORT", "5000"))
 
 PREFIX = "On Shift | "
 
@@ -47,6 +50,48 @@ intents = discord.Intents.default()
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+class BotHealthHandler(BaseHTTPRequestHandler):
+    """Serves the bot's plain-text health page."""
+
+    def _send_text(self, status: int, body: str):
+        body_bytes = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body_bytes)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body_bytes)
+
+    def do_GET(self):
+        if self.path.split("?", 1)[0] == "/":
+            self._send_text(200, "Bot is alive!")
+        else:
+            self._send_text(404, "Not found")
+
+    def do_HEAD(self):
+        if self.path.split("?", 1)[0] == "/":
+            self._send_text(200, "Bot is alive!")
+        else:
+            self._send_text(404, "Not found")
+
+    def log_message(self, format, *args):
+        return
+
+
+def start_web_server() -> ThreadingHTTPServer:
+    """Starts the health page without blocking the Discord bot."""
+    server = ThreadingHTTPServer(("0.0.0.0", WEB_PORT), BotHealthHandler)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        name="bot-health-server",
+        daemon=True
+    )
+    thread.start()
+    print(f"Health website listening on port {WEB_PORT}.")
+    return server
+
 
 # Active shifts memory: { user_id: { "start_time": float, "original_nick": str, "break_time": float, "on_break": bool, "break_start": float } }
 active_shifts = {}
@@ -992,4 +1037,9 @@ token = os.getenv("DISCORD_TOKEN")
 if not token:
     raise ValueError("DISCORD_TOKEN environment variable not set in Replit Secrets.")
 
-bot.run(token)
+web_server = start_web_server()
+try:
+    bot.run(token)
+finally:
+    web_server.shutdown()
+    web_server.server_close()
