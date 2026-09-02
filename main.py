@@ -855,6 +855,59 @@ async def strike_list(interaction: discord.Interaction, user: discord.Member):
     await interaction.response.send_message(embed=embed)
 
 
+# --- CITATION COMMAND ---
+
+@bot.tree.command(name="cite", description="Issue a citation to a Roblox user.")
+@app_commands.describe(
+    user="Roblox username of the cited subject",
+    reason="Reason for the citation",
+    court_date="Optional court date",
+    image="Optional proof image"
+)
+async def cite(
+    interaction: discord.Interaction,
+    user: str,
+    reason: str,
+    court_date: str = None,
+    image: discord.Attachment = None
+):
+    content = (
+        f"User: {user}\n"
+        f"Reason: {reason}\n"
+        f"Court date: {court_date or 'Not scheduled'}\n"
+        "Image:"
+    )
+
+    file = None
+    if image:
+        try:
+            file = await image.to_file()
+        except Exception as e:
+            embed = discord.Embed(
+                title="Citation Error",
+                description=f"Failed to process the attached image: {e}",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+    try:
+        if file:
+            await interaction.response.send_message(content=content, file=file)
+        else:
+            await interaction.response.send_message(content=content)
+    except discord.Forbidden:
+        embed = discord.Embed(
+            title="Citation Error",
+            description="Bot is missing permissions to send the citation or image.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 # --- ARREST COMMAND ---
 
 @bot.tree.command(name="arrest", description="Log a Roblox user arrest with evidence images.")
