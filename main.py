@@ -968,8 +968,8 @@ async def cite(
         f"User: {user}\n"
         f"Reason: {reason}\n"
         f"Court date: {court_date or 'Not scheduled'}\n"
-        f"Citing Officer: {interaction.user.mention}\n"
-        "Image:"
+        "Image:\n"
+        f"Submitted by: {interaction.user.mention}"
     )
 
     file = None
@@ -991,12 +991,12 @@ async def cite(
             await channel.send(
                 content=content,
                 file=file,
-                allowed_mentions=discord.AllowedMentions.none()
+                allowed_mentions=discord.AllowedMentions(users=[interaction.user])
             )
         else:
             await channel.send(
                 content=content,
-                allowed_mentions=discord.AllowedMentions.none()
+                allowed_mentions=discord.AllowedMentions(users=[interaction.user])
             )
     except discord.Forbidden:
         embed = discord.Embed(
