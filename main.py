@@ -969,6 +969,7 @@ async def cite(
         f"User: {user}\n"
         f"Reason: {reason}\n"
         f"Court date: {court_date or 'Not scheduled'}\n"
+        f"Citing Officer: {interaction.user.mention}\n"
         "Image:"
     )
 
@@ -1051,7 +1052,7 @@ async def arrest(
         f"User: {user}\n"
         f"Reason for arrest: {reason}\n"
         f"Image:\n"
-        f"Arrester: {interaction.user.mention}"
+        f"Arresting Officer: {interaction.user.mention}"
     )
 
     files = []
