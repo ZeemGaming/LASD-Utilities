@@ -1,9 +1,11 @@
 import os
+import json
 import re
 import time
 import random
 import datetime
 import asyncio
+import tempfile
 from zoneinfo import ZoneInfo
 from aiohttp import web
 import discord
@@ -20,6 +22,7 @@ SHIFT_FARMING_ALERT_CHANNEL_ID = 1544201906908430436
 SHIFT_FARMING_THRESHOLD_SECONDS = 10 * 60 * 60
 QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
 WEB_PORT = int(os.getenv("PORT", "5000"))
+SHIFT_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shifts.json")
 
 PREFIX = "On Shift | "
 
@@ -87,11 +90,142 @@ last_shifts = {}
 # User strikes database: { user_id: [ { "case_id": str, "moderator_id": int, "reason": str, "timestamp": int } ] }
 user_strikes = {}
 
-# Flag to prevent multiple reset triggers within the same minute
-has_reset_this_week = False
+# Date of the most recent Saturday quota reset, persisted with shift data
+last_quota_reset_date = None
 
 # User IDs already warned about an active shift lasting over 10 hours
 shift_farming_alerted = set()
+
+
+def save_shift_data() -> bool:
+    """Persist all shift state atomically so unexpected shutdowns do not lose it."""
+    data = {
+        "active_shifts": {
+            str(user_id): {
+                "start_time": float(shift_data["start_time"]),
+                "original_nick": shift_data["original_nick"],
+                "break_time": float(shift_data["break_time"]),
+                "on_break": bool(shift_data["on_break"]),
+                "break_start": float(shift_data["break_start"])
+            }
+            for user_id, shift_data in active_shifts.items()
+        },
+        "shift_leaderboard_data": {
+            str(user_id): float(total_seconds)
+            for user_id, total_seconds in shift_leaderboard_data.items()
+        },
+        "last_shifts": {
+            str(user_id): float(duration)
+            for user_id, duration in last_shifts.items()
+        },
+        "shift_farming_alerted": [str(user_id) for user_id in shift_farming_alerted],
+        "last_quota_reset_date": last_quota_reset_date
+    }
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(SHIFT_DATA_PATH),
+            prefix=".shifts-",
+            suffix=".tmp",
+            delete=False
+        ) as temp_file:
+            temp_path = temp_file.name
+            json.dump(data, temp_file, indent=2, sort_keys=True)
+            temp_file.write("\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+
+        os.replace(temp_path, SHIFT_DATA_PATH)
+        return True
+    except (OSError, TypeError, ValueError) as error:
+        print(f"Error: Could not save shift data to {SHIFT_DATA_PATH}: {error}")
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+        return False
+
+
+def load_shift_data() -> None:
+    """Restore persisted shift state after a restart."""
+    try:
+        with open(SHIFT_DATA_PATH, "r", encoding="utf-8") as shift_file:
+            data = json.load(shift_file)
+    except FileNotFoundError:
+        print(f"No saved shift data found at {SHIFT_DATA_PATH}; starting with empty shift state.")
+        return
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"Error: Could not load shift data from {SHIFT_DATA_PATH}: {error}")
+        return
+
+    if not isinstance(data, dict):
+        print(f"Error: Saved shift data in {SHIFT_DATA_PATH} is not a JSON object.")
+        return
+
+    saved_active_shifts = data.get("active_shifts", {})
+    if isinstance(saved_active_shifts, dict):
+        for user_id, shift_data in saved_active_shifts.items():
+            if not isinstance(shift_data, dict):
+                continue
+            try:
+                parsed_user_id = int(user_id)
+                original_nick = shift_data["original_nick"]
+                if not isinstance(original_nick, str):
+                    continue
+                active_shifts[parsed_user_id] = {
+                    "start_time": float(shift_data["start_time"]),
+                    "original_nick": original_nick,
+                    "break_time": float(shift_data["break_time"]),
+                    "on_break": bool(shift_data["on_break"]),
+                    "break_start": float(shift_data["break_start"])
+                }
+            except (KeyError, TypeError, ValueError):
+                print(f"Warning: Ignoring invalid active shift record for user {user_id}.")
+
+    saved_leaderboard = data.get("shift_leaderboard_data", {})
+    if isinstance(saved_leaderboard, dict):
+        for user_id, total_seconds in saved_leaderboard.items():
+            try:
+                shift_leaderboard_data[int(user_id)] = float(total_seconds)
+            except (TypeError, ValueError):
+                print(f"Warning: Ignoring invalid leaderboard record for user {user_id}.")
+
+    saved_last_shifts = data.get("last_shifts", {})
+    if isinstance(saved_last_shifts, dict):
+        for user_id, duration in saved_last_shifts.items():
+            try:
+                last_shifts[int(user_id)] = float(duration)
+            except (TypeError, ValueError):
+                print(f"Warning: Ignoring invalid last-shift record for user {user_id}.")
+
+    saved_alerted_users = data.get("shift_farming_alerted", [])
+    if isinstance(saved_alerted_users, list):
+        for user_id in saved_alerted_users:
+            try:
+                shift_farming_alerted.add(int(user_id))
+            except (TypeError, ValueError):
+                print(f"Warning: Ignoring invalid shift-farming alert record for user {user_id}.")
+
+    saved_reset_date = data.get("last_quota_reset_date")
+    if saved_reset_date is None or isinstance(saved_reset_date, str):
+        global last_quota_reset_date
+        last_quota_reset_date = saved_reset_date
+    else:
+        print("Warning: Ignoring invalid saved quota reset date.")
+
+    print(
+        f"Loaded saved shift data: {len(active_shifts)} active, "
+        f"{len(shift_leaderboard_data)} leaderboard, {len(last_shifts)} last-shift records."
+    )
+
+
+load_shift_data()
+if not os.path.exists(SHIFT_DATA_PATH):
+    save_shift_data()
 
 
 def format_duration(seconds: float) -> str:
@@ -186,6 +320,7 @@ async def check_for_shift_farming():
             shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
         )
         active_shifts.pop(user_id, None)
+        save_shift_data()
 
         guild = bot.get_guild(GUILD_ID)
         member = guild.get_member(user_id) if guild else None
@@ -228,21 +363,23 @@ async def check_for_shift_farming():
 
         if warning_sent or (not warning_channel and not log_channel):
             shift_farming_alerted.add(user_id)
+            save_shift_data()
 
 
 # --- AUTOMATED WEEKLY RESET TASK (12 AM Saturday CST) ---
 @tasks.loop(seconds=30)
 async def weekly_quota_reset():
-    global has_reset_this_week
+    global last_quota_reset_date
     cst_zone = ZoneInfo("America/Chicago")
     now_cst = datetime.datetime.now(cst_zone)
 
     await check_for_shift_farming()
 
-    # Saturday is weekday 5. 12:00 AM corresponds to hour 0, minute 0.
-    if now_cst.weekday() == 5 and now_cst.hour == 0 and now_cst.minute == 0:
-        if not has_reset_this_week:
-            has_reset_this_week = True
+    # Saturday is weekday 5. The persisted date also handles downtime during 12:00 AM.
+    if now_cst.weekday() == 5:
+        reset_date = now_cst.date().isoformat()
+        if last_quota_reset_date != reset_date:
+            last_quota_reset_date = reset_date
             guild = bot.get_guild(GUILD_ID)
             if guild:
                 channel = guild.get_channel(QUOTA_LOG_CHANNEL_ID)
@@ -271,9 +408,8 @@ async def weekly_quota_reset():
 
             shift_leaderboard_data.clear()
             last_shifts.clear()
-            print("Weekly shift leaderboard successfully reset at 12:00 AM Saturday CST.")
-    else:
-        has_reset_this_week = False
+            save_shift_data()
+            print("Weekly shift leaderboard successfully reset for Saturday CST.")
 
 
 @bot.event
@@ -333,6 +469,7 @@ async def shift_start(interaction: discord.Interaction):
         "on_break": False,
         "break_start": 0.0
     }
+    save_shift_data()
 
     nick_updated = await apply_on_shift_nick(interaction.user, original_nick)
 
@@ -368,6 +505,7 @@ async def shift_break(interaction: discord.Interaction):
     if not shift_data["on_break"]:
         shift_data["on_break"] = True
         shift_data["break_start"] = time.time()
+        save_shift_data()
 
         embed = discord.Embed(
             title="Shift On Break",
@@ -381,6 +519,7 @@ async def shift_break(interaction: discord.Interaction):
         shift_data["break_time"] += break_duration
         shift_data["on_break"] = False
         shift_data["break_start"] = 0.0
+        save_shift_data()
 
         embed = discord.Embed(
             title="Shift Resumed",
@@ -418,6 +557,7 @@ async def shift_end(interaction: discord.Interaction):
     last_shifts[user_id] = active_duty_time
     total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
     shift_leaderboard_data[user_id] = total_cumulative
+    save_shift_data()
 
     nick_restored = await restore_nick(interaction.user, shift_data["original_nick"])
 
@@ -525,6 +665,7 @@ async def shift_admin(
             "on_break": False,
             "break_start": 0.0
         }
+        save_shift_data()
         await apply_on_shift_nick(user, original_nick)
 
         embed = discord.Embed(
@@ -559,6 +700,7 @@ async def shift_admin(
         last_shifts[target_id] = active_duty_time
         total_cumulative = shift_leaderboard_data.get(target_id, 0.0) + active_duty_time
         shift_leaderboard_data[target_id] = total_cumulative
+        save_shift_data()
 
         await restore_nick(user, shift_data["original_nick"])
 
@@ -595,6 +737,7 @@ async def shift_admin(
         current_time = shift_leaderboard_data.get(target_id, 0.0)
         new_total = current_time + seconds_to_add
         shift_leaderboard_data[target_id] = new_total
+        save_shift_data()
 
         embed = discord.Embed(
             title="Admin Action: Time Added",
@@ -632,6 +775,7 @@ async def shift_admin(
         current_time = shift_leaderboard_data.get(target_id, 0.0)
         new_total = max(0.0, current_time - seconds_to_remove)
         shift_leaderboard_data[target_id] = new_total
+        save_shift_data()
 
         embed = discord.Embed(
             title="Admin Action: Time Removed",
@@ -672,6 +816,7 @@ async def shift_admin(
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
+        save_shift_data()
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed)
 
@@ -682,6 +827,7 @@ async def shift_admin(
 
         shift_leaderboard_data.pop(target_id, None)
         last_shifts.pop(target_id, None)
+        save_shift_data()
 
         embed = discord.Embed(
             title="Admin Action: All Shift Data Cleared",
