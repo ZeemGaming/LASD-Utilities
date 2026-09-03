@@ -25,7 +25,6 @@ PREFIX = "On Shift | "
 
 # User IDs allowed for admin commands
 ALLOWED_USER_IDS = {
-    1111666992982827018,  # @zeemonyt.
     1422647977880584324,  # @zeemonyt. (Secondary ID)
 }
 
