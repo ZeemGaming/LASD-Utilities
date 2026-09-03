@@ -7,7 +7,7 @@ import datetime
 import asyncio
 import tempfile
 from zoneinfo import ZoneInfo
-from aiohttp import web
+from aiohttp import ClientSession, ClientTimeout, web
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -19,10 +19,16 @@ STRIKE_LOG_CHANNEL_ID = 1538076682664017944
 ARREST_LOG_CHANNEL_ID = 1538076682441724001
 CITE_LOG_CHANNEL_ID = 1538076682441724002
 SHIFT_FARMING_ALERT_CHANNEL_ID = 1544201906908430436
+VERIFICATION_CHANNEL_ID = 1545124321503215717
+VERIFIED_ROLE_ID = 1545109313276878879
 SHIFT_FARMING_THRESHOLD_SECONDS = 10 * 60 * 60
 QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
 WEB_PORT = int(os.getenv("PORT", "5000"))
 SHIFT_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shifts.json")
+VERIFICATION_DATA_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "verification.json"
+)
 
 PREFIX = "On Shift | "
 
@@ -95,6 +101,11 @@ last_quota_reset_date = None
 
 # User IDs already warned about an active shift lasting over 10 hours
 shift_farming_alerted = set()
+
+# Persistent verification message and in-progress verification requests
+verification_message_id = None
+pending_verifications = {}
+verification_views_registered = False
 
 
 def save_shift_data() -> bool:
@@ -226,6 +237,103 @@ def load_shift_data() -> None:
 load_shift_data()
 if not os.path.exists(SHIFT_DATA_PATH):
     save_shift_data()
+
+
+def save_verification_data() -> bool:
+    """Persist the verification message ID and any in-progress requests atomically."""
+    data = {
+        "verification_message_id": verification_message_id,
+        "pending_verifications": {
+            str(user_id): {
+                "roblox_username": request["roblox_username"],
+                "roblox_user_id": int(request["roblox_user_id"]),
+                "code": request["code"],
+                "guild_id": int(request["guild_id"]),
+                "created_at": int(request["created_at"])
+            }
+            for user_id, request in pending_verifications.items()
+        }
+    }
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(VERIFICATION_DATA_PATH),
+            prefix=".verification-",
+            suffix=".tmp",
+            delete=False
+        ) as temp_file:
+            temp_path = temp_file.name
+            json.dump(data, temp_file, indent=2, sort_keys=True)
+            temp_file.write("\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+
+        os.replace(temp_path, VERIFICATION_DATA_PATH)
+        return True
+    except (OSError, TypeError, ValueError) as error:
+        print(f"Error: Could not save verification data to {VERIFICATION_DATA_PATH}: {error}")
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+        return False
+
+
+def load_verification_data() -> None:
+    """Restore the verification message ID and pending requests after a restart."""
+    global verification_message_id
+
+    try:
+        with open(VERIFICATION_DATA_PATH, "r", encoding="utf-8") as verification_file:
+            data = json.load(verification_file)
+    except FileNotFoundError:
+        print(
+            f"No saved verification data found at {VERIFICATION_DATA_PATH}; "
+            "the verification message will be created once."
+        )
+        return
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"Error: Could not load verification data from {VERIFICATION_DATA_PATH}: {error}")
+        return
+
+    if not isinstance(data, dict):
+        print(f"Error: Saved verification data in {VERIFICATION_DATA_PATH} is not a JSON object.")
+        return
+
+    saved_message_id = data.get("verification_message_id")
+    if saved_message_id is not None:
+        try:
+            verification_message_id = int(saved_message_id)
+        except (TypeError, ValueError):
+            print("Warning: Ignoring invalid saved verification message ID.")
+
+    saved_requests = data.get("pending_verifications", {})
+    if isinstance(saved_requests, dict):
+        for user_id, request in saved_requests.items():
+            if not isinstance(request, dict):
+                continue
+            try:
+                pending_verifications[int(user_id)] = {
+                    "roblox_username": str(request["roblox_username"]),
+                    "roblox_user_id": int(request["roblox_user_id"]),
+                    "code": str(request["code"]),
+                    "guild_id": int(request["guild_id"]),
+                    "created_at": int(request["created_at"])
+                }
+            except (KeyError, TypeError, ValueError):
+                print(f"Warning: Ignoring invalid verification request for user {user_id}.")
+
+    print(
+        f"Loaded verification data: message ID {'present' if verification_message_id else 'missing'}, "
+        f"{len(pending_verifications)} pending request(s)."
+    )
+
+
+load_verification_data()
 
 
 def format_duration(seconds: float) -> str:
@@ -412,12 +520,353 @@ async def weekly_quota_reset():
             print("Weekly shift leaderboard successfully reset for Saturday CST.")
 
 
+VERIFICATION_WORDS = [
+    "amber", "apple", "brave", "candy", "cedar", "cloud", "coral", "daisy",
+    "eagle", "ember", "frost", "grape", "green", "happy", "ivory", "lemon",
+    "maple", "ocean", "olive", "pearl", "piano", "pixel", "pluto", "raven",
+    "river", "robin", "sable", "solar", "stone", "sunny", "tiger", "violet"
+]
+
+
+def generate_verification_code() -> str:
+    """Generates four short random words for a Roblox bio verification code."""
+    return " ".join(random.sample(VERIFICATION_WORDS, 4))
+
+
+def verification_embed(request: dict) -> discord.Embed:
+    """Builds the current verification instructions for a user."""
+    embed = discord.Embed(
+        title="Roblox Verification",
+        description=(
+            f"Put this exact code in your Roblox bio:\n\n"
+            f"**`{request['code']}`**\n\n"
+            "After saving your bio, click **Verify** below. "
+            "Use **Words tagged role** to generate a new code."
+        ),
+        color=discord.Color.blurple()
+    )
+    embed.add_field(name="Roblox Username", value=request["roblox_username"], inline=True)
+    embed.set_footer(text="The code is checked against your public Roblox bio.")
+    return embed
+
+
+async def fetch_roblox_profile(user_id: int) -> dict:
+    """Fetches a Roblox user's current public profile."""
+    url = f"https://users.roblox.com/v1/users/{user_id}"
+    timeout = ClientTimeout(total=10)
+    async with ClientSession(timeout=timeout) as session:
+        async with session.get(
+            url,
+            headers={"User-Agent": "LASD Utilities Roblox verification"}
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(f"Roblox profile lookup returned HTTP {response.status}.")
+            profile = await response.json()
+
+    return {
+        "id": int(profile["id"]),
+        "name": str(profile.get("name", "")),
+        "description": str(profile.get("description") or "")
+    }
+
+
+async def find_roblox_user(username: str) -> dict | None:
+    """Resolves a Roblox username and returns its public profile."""
+    url = "https://users.roblox.com/v1/usernames/users"
+    timeout = ClientTimeout(total=10)
+    async with ClientSession(timeout=timeout) as session:
+        async with session.post(
+            url,
+            json={"usernames": [username], "excludeBannedUsers": False},
+            headers={"User-Agent": "LASD Utilities Roblox verification"}
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(f"Roblox username lookup returned HTTP {response.status}.")
+            results = (await response.json()).get("data", [])
+
+    if not results:
+        return None
+
+    matching_user = next(
+        (
+            result for result in results
+            if str(result.get("name", "")).casefold() == username.casefold()
+        ),
+        results[0]
+    )
+    return await fetch_roblox_profile(int(matching_user["id"]))
+
+
+class RobloxUsernameModal(discord.ui.Modal, title="Roblox Verification"):
+    roblox_username = discord.ui.TextInput(
+        label="Roblox username",
+        placeholder="Enter your Roblox username",
+        min_length=3,
+        max_length=20,
+        required=True
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "Verification must be started in the staff server.",
+                ephemeral=True
+            )
+            return
+
+        username = str(self.roblox_username).strip()
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            roblox_profile = await find_roblox_user(username)
+        except Exception as error:
+            print(f"Error: Roblox lookup failed for username {username}: {error}")
+            await interaction.followup.send(
+                "I couldn't reach Roblox right now. Please try again in a moment.",
+                ephemeral=True
+            )
+            return
+
+        if not roblox_profile:
+            await interaction.followup.send(
+                f"I couldn't find a Roblox account named **{username}**. "
+                "Check the spelling and try again.",
+                ephemeral=True
+            )
+            return
+
+        request = {
+            "roblox_username": roblox_profile["name"],
+            "roblox_user_id": roblox_profile["id"],
+            "code": generate_verification_code(),
+            "guild_id": interaction.guild.id,
+            "created_at": int(time.time())
+        }
+        pending_verifications[interaction.user.id] = request
+        save_verification_data()
+
+        await interaction.followup.send(
+            embed=verification_embed(request),
+            view=VerificationCodeView(interaction.user.id),
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none()
+        )
+
+
+class VerificationStartView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        label="Verify now",
+        style=discord.ButtonStyle.primary,
+        custom_id="verification:start"
+    )
+    async def verify_now(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "Verification must be started in the staff server.",
+                ephemeral=True
+            )
+            return
+        await interaction.response.send_modal(RobloxUsernameModal())
+
+
+class VerificationCodeView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=None)
+        self.user_id = user_id
+
+        verify_button = discord.ui.Button(
+            label="Verify",
+            style=discord.ButtonStyle.success,
+            custom_id=f"verification:verify:{user_id}"
+        )
+        verify_button.callback = self.verify_code
+        self.add_item(verify_button)
+
+        regenerate_button = discord.ui.Button(
+            label="Words tagged role",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"verification:regenerate:{user_id}"
+        )
+        regenerate_button.callback = self.regenerate_code
+        self.add_item(regenerate_button)
+
+    async def _check_owner(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.user_id:
+            return True
+        await interaction.response.send_message(
+            "This verification request belongs to another user.",
+            ephemeral=True
+        )
+        return False
+
+    async def regenerate_code(self, interaction: discord.Interaction):
+        if not await self._check_owner(interaction):
+            return
+
+        request = pending_verifications.get(self.user_id)
+        if not request:
+            await interaction.response.send_message(
+                "This verification request has expired. Click **Verify now** to start again.",
+                ephemeral=True
+            )
+            return
+
+        request["code"] = generate_verification_code()
+        request["created_at"] = int(time.time())
+        save_verification_data()
+        await interaction.response.edit_message(
+            embed=verification_embed(request),
+            view=VerificationCodeView(self.user_id)
+        )
+
+    async def verify_code(self, interaction: discord.Interaction):
+        if not await self._check_owner(interaction):
+            return
+
+        request = pending_verifications.get(self.user_id)
+        if not request:
+            await interaction.response.send_message(
+                "This verification request has expired. Click **Verify now** to start again.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            roblox_profile = await fetch_roblox_profile(request["roblox_user_id"])
+        except Exception as error:
+            print(
+                f"Error: Roblox bio lookup failed for user "
+                f"{request['roblox_username']}: {error}"
+            )
+            await interaction.followup.send(
+                "I couldn't check your Roblox bio right now. Please try again in a moment.",
+                ephemeral=True
+            )
+            return
+
+        if request["code"].casefold() not in roblox_profile["description"].casefold():
+            await interaction.followup.send(
+                "The verification code was not found in your Roblox bio. "
+                "Add it exactly, save your bio, and try again.",
+                ephemeral=True
+            )
+            return
+
+        guild = interaction.guild or bot.get_guild(request["guild_id"])
+        if not guild:
+            await interaction.followup.send(
+                "I couldn't find the staff server. Please try again later.",
+                ephemeral=True
+            )
+            return
+
+        member = guild.get_member(self.user_id)
+        if not member:
+            try:
+                member = await guild.fetch_member(self.user_id)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                member = None
+
+        role = guild.get_role(VERIFIED_ROLE_ID)
+        if not member or not role:
+            await interaction.followup.send(
+                "I couldn't find your server member record or the verification role. "
+                "Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            await member.add_roles(role, reason="Roblox bio verification completed")
+        except (discord.Forbidden, discord.HTTPException):
+            await interaction.followup.send(
+                "I couldn't assign the verification role. Please contact an administrator.",
+                ephemeral=True
+            )
+            return
+
+        pending_verifications.pop(self.user_id, None)
+        save_verification_data()
+        await interaction.followup.send(
+            f"Verification complete. You received the <@&{VERIFIED_ROLE_ID}> role.",
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none()
+        )
+
+
+def register_verification_views() -> None:
+    """Registers persistent button handlers after the bot connects."""
+    global verification_views_registered
+    if verification_views_registered:
+        return
+
+    bot.add_view(VerificationStartView())
+    for user_id in pending_verifications:
+        bot.add_view(VerificationCodeView(user_id))
+    verification_views_registered = True
+
+
+async def ensure_verification_message() -> None:
+    """Ensures the public verification message is sent only once."""
+    global verification_message_id
+
+    channel = bot.get_channel(VERIFICATION_CHANNEL_ID)
+    if not channel:
+        try:
+            channel = await bot.fetch_channel(VERIFICATION_CHANNEL_ID)
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            print(
+                f"Error: Could not access verification channel "
+                f"{VERIFICATION_CHANNEL_ID}."
+            )
+            return
+
+    if verification_message_id:
+        try:
+            await channel.fetch_message(verification_message_id)
+            return
+        except discord.NotFound:
+            print("Saved verification message was not found; creating a replacement.")
+            verification_message_id = None
+            save_verification_data()
+        except (discord.Forbidden, discord.HTTPException) as error:
+            print(f"Error: Could not check the saved verification message: {error}")
+            return
+
+    try:
+        message = await channel.send(
+            "Backup verification system",
+            view=VerificationStartView(),
+            allowed_mentions=discord.AllowedMentions.none()
+        )
+    except (discord.Forbidden, discord.HTTPException) as error:
+        print(f"Error: Could not send the verification message: {error}")
+        return
+
+    verification_message_id = message.id
+    save_verification_data()
+    print(
+        f"Created one-time verification message {message.id} "
+        f"in channel {VERIFICATION_CHANNEL_ID}."
+    )
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
 
     if not weekly_quota_reset.is_running():
         weekly_quota_reset.start()
+
+    register_verification_views()
 
     try:
         if GUILD_ID:
@@ -430,6 +879,8 @@ async def on_ready():
             print(f"Synced {len(synced)} global command(s).")
     except Exception as e:
         print(f"Error syncing slash commands: {e}")
+
+    await ensure_verification_message()
 
 
 # --- SHIFT SLASH COMMANDS ---
