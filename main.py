@@ -5,7 +5,7 @@ import random
 import datetime
 import asyncio
 from zoneinfo import ZoneInfo
-from aiohttp import BasicAuth, web
+from aiohttp import web
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -20,8 +20,6 @@ SHIFT_FARMING_ALERT_CHANNEL_ID = 1544201906908430436
 SHIFT_FARMING_THRESHOLD_SECONDS = 10 * 60 * 60
 QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
 WEB_PORT = int(os.getenv("PORT", "5000"))
-WEBSHARE_PROXY_HOST = os.getenv("WEBSHARE_PROXY_HOST", "p.webshare.io")
-WEBSHARE_PROXY_PORT = int(os.getenv("WEBSHARE_PROXY_PORT", "80"))
 
 PREFIX = "On Shift | "
 
@@ -52,16 +50,7 @@ ALLOWED_ROLE_IDS = {
 intents = discord.Intents.default()
 intents.members = True
 
-proxy_username = os.getenv("WEBSHARE_PROXY_USERNAME")
-proxy_password = os.getenv("WEBSHARE_PROXY_PASSWORD")
-proxy_options = {}
-if proxy_username and proxy_password:
-    proxy_options = {
-        "proxy": f"http://{WEBSHARE_PROXY_HOST}:{WEBSHARE_PROXY_PORT}",
-        "proxy_auth": BasicAuth(proxy_username, proxy_password)
-    }
-
-bot = commands.Bot(command_prefix="!", intents=intents, **proxy_options)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 async def health_handler(request: web.Request) -> web.Response:
