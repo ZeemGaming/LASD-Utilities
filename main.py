@@ -822,10 +822,22 @@ async def ensure_verification_message() -> None:
     if not channel:
         try:
             channel = await bot.fetch_channel(VERIFICATION_CHANNEL_ID)
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        except discord.NotFound:
             print(
-                f"Error: Could not access verification channel "
-                f"{VERIFICATION_CHANNEL_ID}."
+                f"Error: Verification channel {VERIFICATION_CHANNEL_ID} was not found "
+                "or is not visible to this bot."
+            )
+            return
+        except discord.Forbidden:
+            print(
+                f"Error: Discord denied access to verification channel "
+                f"{VERIFICATION_CHANNEL_ID}; check View Channel permission."
+            )
+            return
+        except discord.HTTPException as error:
+            print(
+                f"Error: Discord API could not access verification channel "
+                f"{VERIFICATION_CHANNEL_ID} (HTTP {error.status})."
             )
             return
 
