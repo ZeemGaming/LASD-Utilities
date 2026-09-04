@@ -793,10 +793,31 @@ class VerificationCodeView(discord.ui.View):
             )
             return
 
+        nickname_updated = True
+        try:
+            await member.edit(
+                nick=request["roblox_username"],
+                reason="Set nickname to verified Roblox username"
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            nickname_updated = False
+            print(
+                f"Warning: Could not set Discord nickname for verified user "
+                f"{self.user_id}."
+            )
+
         pending_verifications.pop(self.user_id, None)
         save_verification_data()
+        result_message = (
+            f"Verification complete. You received the <@&{VERIFIED_ROLE_ID}> role "
+            f"and your nickname was set to **{request['roblox_username']}**."
+        )
+        if not nickname_updated:
+            result_message += (
+                "\n\nI couldn't change your nickname because of Discord permissions."
+            )
         await interaction.followup.send(
-            f"Verification complete. You received the <@&{VERIFIED_ROLE_ID}> role.",
+            result_message,
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none()
         )
