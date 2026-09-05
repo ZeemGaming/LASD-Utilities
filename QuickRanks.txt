@@ -1,0 +1,24 @@
+TR (Training Rank)- LASD | Deputy In Training -Role ID: 1538076681628028951
+
+LR (Low Rank):
+LASD | Cadet -Role ID: 1538076681628028950
+LASD | Deputy -Role ID: 1538076681628028952
+LASD | Senior Deputy -Role ID: 1538076681628028953
+
+MR (Middle Rank):
+LASD | Supervisor -Role ID: 1538076681628028956
+LASD | Master Deputy -Role ID: 1538076681628028955
+LASD | Sergeant -Role ID: 1538076681628028957
+LASD | Lieutenant -Role ID: 1538076681632219216
+
+HR (High Rank):
+LASD | Captain -Role ID: 1538076681640747130
+LASD | Chief Deputy -Role ID: 1538076681640747131
+LASD | Chief -Role ID: 1539413609388712006
+LASD | Undersheriff -Role ID: 1538076681640747132
+LASD | Sheriff -Role ID: 1538076681640747133
+
+SHR (Super High Rank):
+LASD | High Ranking Team -Role ID: 1538076681640747135
+(Note: Owner of LASD) LASD | Overseer -Role ID: 1538076681640747136
+(Note: Owner of Main Server) GLARP | Ownership -Role ID: 1539431991080910899

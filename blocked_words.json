@@ -5,6 +5,8 @@
 ## A example could be "Insert something, your account could be" :"Muted, Muted + Warned, Kicked"
 ## A person gets 3 mutes + warns before they get kicked.
 ## All warnings, mutes, and kicks must be logged to this channel: 1545600605853065257
+## Make sure on the message log, it has the message content.
+## People who are not subject to this rule are HR + SHR. Please check QuickRanks.txt
 ## A --:- means a new rule.
 ## If any rules are duplicated, please keep the one in the General rule breaking section, or remove both and put it there.
 --:-
