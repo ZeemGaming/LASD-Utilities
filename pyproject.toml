@@ -1,7 +1,7 @@
 [project]
-name = "repl-nix-workspace"
-version = "0.1.0"
-description = "Add your description here"
+name = "LASD-Utilities"
+version = "1.2.0"
+description = "This is for the GLARP I LASD server! Join here at this link: discord.gg/B6c6DhFFhS"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp",
