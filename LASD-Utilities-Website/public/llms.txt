@@ -1,0 +1,8 @@
+# LASD Utilities
+
+> 
+
+## Pages
+
+- [Admin Panel](https://amazing-single-locust-x2y6xs.teleporthq.site/panel-frontend): Access administrative controls and manage website settings, users, and content from the secure admin panel.
+- [LASD Utilites](https://amazing-single-locust-x2y6xs.teleporthq.site): LASD Utilities is a Discord bot for GLARP I LASD!

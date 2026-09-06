@@ -1,0 +1,507 @@
+:root {
+  --dl-layout-size-large: 144px;
+  --dl-layout-size-small: 48px;
+  --dl-layout-space-unit: 16px;
+  --dl-layout-size-medium: 96px;
+  --dl-layout-size-xlarge: 192px;
+  --dl-layout-size-xsmall: 16px;
+  --dl-color-theme-accent1: #FFFFFF;
+  --dl-color-theme-accent2: #F5D1B0;
+  --dl-layout-radius-round: 50%;
+  --dl-layout-size-xxlarge: 288px;
+  --dl-color-theme-primary1: #BF4408;
+  --dl-color-theme-primary2: #E65103;
+  --dl-layout-size-maxwidth: 1400px;
+  --dl-layout-radius-radius2: 2px;
+  --dl-layout-radius-radius4: 4px;
+  --dl-layout-radius-radius8: 8px;
+  --dl-layout-space-halfunit: 8px;
+  --dl-layout-space-sixunits: 96px;
+  --dl-layout-space-twounits: 32px;
+  --dl-color-theme-secondary1: #FFFFFF;
+  --dl-color-theme-secondary2: #FBF1EB;
+  --dl-layout-space-fiveunits: 80px;
+  --dl-layout-space-fourunits: 64px;
+  --dl-layout-space-threeunits: 48px;
+  --dl-color-theme-neutral-dark: #191818;
+  --dl-layout-radius-cardradius: 8px;
+  --dl-color-theme-neutral-light: #FBFAF9;
+  --dl-layout-radius-imageradius: 8px;
+  --dl-layout-radius-inputradius: 24px;
+  --dl-layout-radius-buttonradius: 24px;
+  --dl-layout-space-oneandhalfunits: 24px;
+}
+ 
+.teleport-show {
+  display: flex !important;
+  transform: none !important;
+}
+ 
+.lasd-page {
+  color: #f4f7fb;
+  width: 100%;
+  padding: 28px clamp(20px, 4vw, 64px) 36px;
+  background: #08111f;
+  box-sizing: border-box;
+  min-height: 100vh;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.5;
+}
+ 
+.lasd-topbar {
+  gap: 24px;
+  width: 100%;
+  margin: 0 auto 72px;
+  display: flex;
+  max-width: 1240px;
+  align-items: center;
+  justify-content: space-between;
+}
+ 
+.lasd-brand {
+  gap: 14px;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+ 
+.lasd-brand-mark {
+  flex: 0 0 42px;
+  color: #f3ce72;
+  width: 42px;
+  border: 1px solid #c8a24b;
+  height: 42px;
+  display: grid;
+  overflow: hidden;
+  font-size: 13px;
+  background: #10233a;
+  box-sizing: border-box;
+  font-weight: 800;
+  place-items: center;
+  border-radius: 10px;
+  letter-spacing: .08em;
+}
+ 
+.lasd-brand-copy {
+  color: #f4f7fb;
+  font-size: 15px;
+  font-weight: 750;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+ 
+.lasd-eyebrow {
+  color: #e0bb5c;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+ 
+.lasd-kicker {
+  color: #e0bb5c;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+ 
+.lasd-section-kicker {
+  color: #e0bb5c;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+ 
+.lasd-panel-label {
+  color: #e0bb5c;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+ 
+.lasd-hero {
+  gap: clamp(40px, 7vw, 104px);
+  width: 100%;
+  display: grid;
+  max-width: 1240px;
+  align-items: center;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 108px;
+  grid-template-columns: minmax(0, 1.12fr) minmax(320px, .88fr);
+}
+ 
+.lasd-commands {
+  width: 100%;
+  max-width: 1240px;
+  margin-left: auto;
+  margin-right: auto;
+  margin-bottom: 92px;
+}
+ 
+.lasd-join {
+  gap: 24px;
+  width: 100%;
+  border: 1px solid #29435d;
+  display: flex;
+  padding: 32px;
+  max-width: 1240px;
+  background: #0d1b2c;
+  align-items: center;
+  margin-left: auto;
+  margin-right: auto;
+  border-radius: 12px;
+  margin-bottom: 72px;
+  justify-content: space-between;
+}
+ 
+.lasd-footer {
+  color: #71879d;
+  width: 100%;
+  font-size: 12px;
+  max-width: 1240px;
+  border-top: 1px solid #1e344b;
+  margin-left: auto;
+  padding-top: 22px;
+  margin-right: auto;
+}
+ 
+.lasd-hero-copy {
+  max-width: 680px;
+}
+ 
+.lasd-title {
+  color: #ffffff;
+  margin: 12px 0 20px;
+  font-size: clamp(42px, 6vw, 78px);
+  max-width: 680px;
+  font-weight: 780;
+  line-height: .98;
+  letter-spacing: -.055em;
+}
+ 
+.lasd-lede {
+  color: #b5c3d2;
+  margin: 0;
+  font-size: clamp(16px, 1.8vw, 19px);
+  max-width: 590px;
+  line-height: 1.7;
+}
+ 
+.lasd-actions {
+  gap: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 30px;
+  align-items: center;
+}
+ 
+.lasd-primary-button {
+  color: #101a28;
+  border: 1px solid #d4ae55;
+  display: inline-flex;
+  padding: 0 20px;
+  font-size: 14px;
+  background: #e2bd5d;
+  min-height: 46px;
+  transition: background-color .2s ease, border-color .2s ease, transform .2s ease;
+  align-items: center;
+  font-weight: 800;
+  border-radius: 7px;
+  justify-content: center;
+  text-decoration: none;
+}
+ 
+.lasd-primary-button:hover {
+  transform: translateY(-1px);
+  background: #f0d27e;
+  border-color: #f0d27e;
+}
+ 
+.lasd-join-button {
+  color: #101a28;
+  border: 1px solid #d4ae55;
+  display: inline-flex;
+  padding: 0 20px;
+  font-size: 14px;
+  background: #e2bd5d;
+  min-height: 46px;
+  transition: background-color .2s ease, border-color .2s ease, transform .2s ease;
+  align-items: center;
+  font-weight: 800;
+  border-radius: 7px;
+  justify-content: center;
+  text-decoration: none;
+}
+ 
+.lasd-join-button:hover {
+  transform: translateY(-1px);
+  background: #f0d27e;
+  border-color: #f0d27e;
+}
+ 
+.lasd-note {
+  color: #8094a9;
+  margin: 0;
+  font-size: 12px;
+}
+ 
+.lasd-panel {
+  border: 1px solid #29435d;
+  padding: 28px;
+  background: linear-gradient(145deg, #10243a, #0c192b);
+  box-shadow: 0 22px 55px rgba(0,0,0,.22);
+  border-radius: 14px;
+}
+ 
+.lasd-panel-title {
+  color: #f7f9fc;
+  margin: 8px 0 22px;
+  font-size: 25px;
+  letter-spacing: -.02em;
+}
+ 
+.lasd-panel-list {
+  gap: 0;
+  margin: 0;
+  display: grid;
+  padding: 0;
+  list-style: none;
+}
+ 
+.lasd-panel-item {
+  gap: 12px;
+  color: #c4d0dd;
+  display: grid;
+  padding: 15px 0;
+  font-size: 14px;
+  border-top: 1px solid #243b52;
+  grid-template-columns: 32px 1fr;
+}
+ 
+.lasd-panel-index {
+  color: #e0bb5c;
+  font-weight: 800;
+}
+ 
+.lasd-panel-footer {
+  color: #8195a9;
+  font-size: 12px;
+  margin-top: 19px;
+}
+ 
+.lasd-section-heading {
+  max-width: 680px;
+  margin-bottom: 28px;
+}
+ 
+.lasd-section-title {
+  color: #fff;
+  margin: 8px 0 10px;
+  font-size: clamp(30px, 4vw, 46px);
+  line-height: 1.05;
+  letter-spacing: -.04em;
+}
+ 
+.lasd-section-copy {
+  color: #9fb0c1;
+  margin: 0;
+  font-size: 16px;
+  max-width: 610px;
+}
+ 
+.lasd-command-grid {
+  gap: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+ 
+.lasd-command-card {
+  border: 1px solid #203a54;
+  padding: 23px;
+  background: #0e1c2e;
+  min-height: 178px;
+  border-radius: 10px;
+}
+ 
+.lasd-command-name {
+  color: #f0ca6d;
+  margin: 0 0 10px;
+  font-size: 17px;
+  font-weight: 750;
+}
+ 
+.lasd-command-desc {
+  color: #a9bacb;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.65;
+}
+ 
+.lasd-admin-callout {
+  gap: 18px;
+  margin: 0 auto 92px;
+  display: flex;
+  padding: 24px 26px;
+  max-width: 1240px;
+  background: #102339;
+  align-items: flex-start;
+  border-left: 3px solid #d2ad55;
+}
+ 
+.lasd-callout-icon {
+  color: #e0bb5c;
+  font-size: 20px;
+  font-weight: 800;
+}
+ 
+.lasd-callout-copy {
+  flex: 1;
+}
+ 
+.lasd-callout-title {
+  color: #f5f7fa;
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+ 
+.lasd-callout-text {
+  color: #a9bacb;
+  margin: 0;
+  font-size: 14px;
+}
+ 
+.lasd-join-copy {
+  max-width: 700px;
+}
+ 
+.lasd-join-title {
+  color: #fff;
+  margin: 0 0 8px;
+  font-size: 28px;
+  letter-spacing: -.025em;
+}
+ 
+.lasd-join-text {
+  color: #a9bacb;
+  margin: 0;
+  font-size: 15px;
+}
+ 
+.lasd-brand-mark > img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+ 
+.Content {
+  font-size: 16px;
+  font-family: Inter;
+  font-weight: 400;
+  line-height: 1.15;
+  text-transform: none;
+  text-decoration: none;
+}
+ 
+@media(max-width: 991px) {
+  .lasd-topbar {
+    margin-bottom: 56px;
+  }
+  .lasd-brand-mark {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+  }
+  .lasd-hero {
+    gap: 42px;
+    margin-bottom: 80px;
+    grid-template-columns: 1fr;
+  }
+  .lasd-hero-copy {
+    max-width: 760px;
+  }
+  .lasd-command-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+ 
+@media(max-width: 767px) {
+  .lasd-page {
+    padding: 22px 20px 28px;
+  }
+  .lasd-topbar {
+    align-items: flex-start;
+    margin-bottom: 52px;
+  }
+  .lasd-brand-mark {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+  .lasd-hero {
+    margin-bottom: 68px;
+  }
+  .lasd-commands {
+    margin-bottom: 68px;
+  }
+  .lasd-join {
+    padding: 25px;
+    align-items: flex-start;
+    margin-bottom: 54px;
+    flex-direction: column;
+  }
+  .lasd-command-grid {
+    grid-template-columns: 1fr;
+  }
+  .lasd-admin-callout {
+    margin-bottom: 68px;
+  }
+}
+ 
+@media(max-width: 479px) {
+  .lasd-page {
+    padding: 18px 15px 24px;
+  }
+  .lasd-topbar {
+    gap: 12px;
+    margin-bottom: 44px;
+  }
+  .lasd-brand-mark {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+  }
+  .lasd-brand-copy {
+    font-size: 12px;
+  }
+  .lasd-title {
+    font-size: 41px;
+  }
+  .lasd-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .lasd-primary-button {
+    width: 100%;
+  }
+  .lasd-join-button {
+    width: 100%;
+  }
+  .lasd-panel {
+    padding: 21px;
+  }
+  .lasd-admin-callout {
+    padding: 20px;
+  }
+}
