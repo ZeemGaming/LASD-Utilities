@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 *)",
+      "Bash(curl *)",
+      "Bash(ps *)",
+      "Bash(kill 8040 *)",
+      "Bash(env)",
+      "Bash(pkill -f \"python.*main.py\")",
+      "Bash(git status *)",
+      "Bash(git restore *)",
+      "Bash(git log *)"
+    ]
+  }
+}

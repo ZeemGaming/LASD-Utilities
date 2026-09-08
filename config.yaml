@@ -1,0 +1,66 @@
+model_list:
+  # 1. Main Workhorse (3.5 Flash-Lite)
+  - model_name: gemini-3.5-fl
+    litellm_params:
+      model: gemini/gemini-3.5-flash-lite
+      api_key: "os.environ/GEMINI_API_KEY"
+      drop_params: true
+
+  # 2. Level 2 (3.5 Flash)
+  - model_name: gemini-3.5-f
+    litellm_params:
+      model: gemini/gemini-3.5-flash
+      api_key: "os.environ/GEMINI_API_KEY"
+      drop_params: true
+
+  # 3. Level 3 (3.6 Flash Agentic Workspace Engine)
+  - model_name: gemini-3.6-f
+    litellm_params:
+      model: gemini/gemini-3.6-flash
+      api_key: "os.environ/GEMINI_API_KEY"
+      drop_params: true
+
+  # 4. Level 4 (3.7 Flash - Thinking Mode)
+  - model_name: gemini-3.7-f
+    litellm_params:
+      model: gemini/gemini-3.7-flash
+      api_key: "os.environ/GEMINI_API_KEY"
+      thinking: true
+      thinking_budget: 2048
+      drop_params: true
+
+  # 5. Level 5 (3.8 Flash - Advanced Agentic)
+  - model_name: gemini-3.8-f
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: "os.environ/GEMINI_API_KEY"
+      thinking: true
+      thinking_budget: 2048
+      drop_params: true
+
+  # 6. Level 6 (3.0 Flash Preview Node - Added!)
+  - model_name: gemini-3-f-pv
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_key: "os.environ/GEMINI_API_KEY"
+      drop_params: true
+
+  # 7. Level 7 (3.1 Flash-Lite Total Emergency Fallback Track)
+  - model_name: gemini-3.1-fl
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: "os.environ/GEMINI_API_KEY"
+      drop_params: true
+
+  # --- Target Catch Variable Map ---
+  - model_name: claude-3-5-sonnet
+    litellm_params:
+      model: gemini/gemini-3.5-flash-lite
+      api_key: "os.environ/GEMINI_API_KEY"
+      drop_params: true
+
+router_settings:
+  num_retries: 1
+  cooldown_time: 61
+  fallbacks:
+    - claude-3-5-sonnet: ["gemini-3.5-fl", "gemini-3.5-f", "gemini-3.6-f", "gemini-3.7-f", "gemini-3.8-f", "gemini-3-f-pv", "gemini-3.1-fl"]

@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>HR Panel - LASD Utilities</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./panel-frontend.css" />
+    <style>
+      body {
+        background-color: #0f172a;
+        color: #f8fafc;
+        font-family: 'Inter', sans-serif;
+      }
+      .hr-container {
+        max-width: 1200px;
+        margin: 40px auto;
+        padding: 24px;
+      }
+      .header-card {
+        background: rgba(30, 41, 59, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 24px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .grid-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin-bottom: 30px;
+      }
+      .card {
+        background: rgba(30, 41, 59, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 20px;
+      }
+      .card h3 {
+        margin-bottom: 12px;
+        font-size: 1.2rem;
+        color: #38bdf8;
+      }
+      .btn {
+        background-color: #2563eb;
+        color: white;
+        padding: 10px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        border: none;
+        transition: background 0.2s;
+      }
+      .btn:hover {
+        background-color: #1d4ed8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hr-container">
+      <div class="header-card">
+        <div>
+          <h1>LASD Human Resources Panel</h1>
+          <p style="color: #94a3b8; margin-top: 4px;">Manage personnel, disciplinary strikes, and department records.</p>
+        </div>
+        <div>
+          <a href="/admin" class="btn" style="background-color: #475569; text-decoration: none; margin-right: 10px;">Main Admin</a>
+          <a href="/" class="btn" style="background-color: #334155; text-decoration: none;">Home</a>
+        </div>
+      </div>
+
+      <div class="grid-cards">
+        <div class="card">
+          <h3>Active Personnel</h3>
+          <p style="color: #94a3b8; margin-bottom: 16px;">View active roster, ranks, and shift statuses.</p>
+          <button class="btn" onclick="alert('Loading personnel roster...')">View Roster</button>
+        </div>
+        <div class="card">
+          <h3>Disciplinary Strikes</h3>
+          <p style="color: #94a3b8; margin-bottom: 16px;">Review issued strikes and disciplinary history.</p>
+          <button class="btn" onclick="alert('Loading strike logs...')">View Strikes</button>
+        </div>
+        <div class="card">
+          <h3>HR Reports & Actions</h3>
+          <p style="color: #94a3b8; margin-bottom: 16px;">Generate shift reports and disciplinary summaries.</p>
+          <button class="btn" onclick="alert('Generating report...')">Generate Report</button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

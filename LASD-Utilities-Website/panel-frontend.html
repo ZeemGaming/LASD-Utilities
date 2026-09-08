@@ -1,463 +1,809 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark">
   <head>
-    <title>Admin Panel</title>
-    <meta
-      name="description"
-      content="Access administrative controls and manage website settings, users, and content from the secure admin panel."
-    />
-    <meta property="og:title" content="Admin Panel" />
-    <meta
-      property="og:description"
-      content="Access administrative controls and manage website settings, users, and content from the secure admin panel."
-    />
-    <meta property="og:type" content="website" />
-    <meta name="twitter:title" content="Admin Panel" />
-    <meta
-      name="twitter:description"
-      content="Access administrative controls and manage website settings, users, and content from the secure admin panel."
-    />
+    <title>LASD Command & Control Panel</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta charset="utf-8" />
-    <meta property="twitter:card" content="summary_large_image" />
-
-    <style data-tag="reset-style-sheet">
-      html {  line-height: 1.15;}body {  margin: 0;}* {  box-sizing: border-box;  border-width: 0;  border-style: solid;  -webkit-font-smoothing: antialiased;}p,li,ul,pre,div,h1,h2,h3,h4,h5,h6,figure,blockquote,figcaption {  margin: 0;  padding: 0;}button {  background-color: transparent;}button,input,optgroup,select,textarea {  font-family: inherit;  font-size: 100%;  line-height: 1.15;  margin: 0;}button,select {  text-transform: none;}button,[type="button"],[type="reset"],[type="submit"] {  -webkit-appearance: button;  color: inherit;}button::-moz-focus-inner,[type="button"]::-moz-focus-inner,[type="reset"]::-moz-focus-inner,[type="submit"]::-moz-focus-inner {  border-style: none;  padding: 0;}button:-moz-focus,[type="button"]:-moz-focus,[type="reset"]:-moz-focus,[type="submit"]:-moz-focus {  outline: 1px dotted ButtonText;}a {  color: inherit;  text-decoration: inherit;}pre {  white-space: normal;}input {  padding: 2px 4px;}img {  display: block;}details {  display: block;  margin: 0;  padding: 0;}summary::-webkit-details-marker {  display: none;}[data-thq="accordion"] [data-thq="accordion-content"] {  max-height: 0;  overflow: hidden;  transition: max-height 0.3s ease-in-out;  padding: 0;}[data-thq="accordion"] details[data-thq="accordion-trigger"][open] + [data-thq="accordion-content"] {  max-height: 1000vh;}details[data-thq="accordion-trigger"][open] summary [data-thq="accordion-icon"] {  transform: rotate(180deg);}html { scroll-behavior: smooth  }
-    </style>
-    <style data-tag="default-style-sheet">
-      html {
-        font-family: Inter;
-        font-size: 16px;
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              lasd: {
+                900: '#0b1329',
+                800: '#111c3a',
+                700: '#1e293b',
+                600: '#334155',
+                accent: '#3b82f6',
+                gold: '#eab308'
+              }
+            }
+          }
+        }
       }
-
-      body {
-        font-weight: 400;
-        font-style:normal;
-        text-decoration: none;
-        text-transform: none;
-        letter-spacing: normal;
-        line-height: 1.15;
-        color: var(--dl-color-theme-neutral-dark);
-        background: var(--dl-color-theme-neutral-light);
-
-        fill: var(--dl-color-theme-neutral-dark);
-      }
-    </style>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/animate.css@4.1.1/animate.css"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&amp;display=swap"
-      data-tag="font"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&amp;display=swap"
-      data-tag="font"
-    />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&amp;display=swap"
-      data-tag="font"
-    />
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/@teleporthq/teleport-custom-scripts/dist/style.css"
-    />
+    </script>
     <style>
-      a:has(> [class*="-thq-product-card-elm"]) { display: contents; }
-      [class*="-thq-product-item-wrapper-elm"] > a { display: contents; }
+      body { font-family: 'Inter', sans-serif; background-color: #090d16; color: #f8fafc; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: #090d16; }
+      ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #334155; }
     </style>
   </head>
-  <body>
-    <link rel="stylesheet" href="./style.css" />
-    <div>
-      <link href="./panel-frontend.css" rel="stylesheet" />
+  <body class="min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+    <!-- Top Navigation Bar -->
+    <header class="bg-[#111c3a]/90 backdrop-blur-md border-b border-slate-800 px-6 py-3.5 flex items-center justify-between z-50 sticky top-0">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/20">
+          🛡️
+        </div>
+        <div>
+          <h1 class="font-bold text-base tracking-wide text-white flex items-center space-x-2">
+            <span>LASD Command Center</span>
+            <span class="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full font-semibold">LIVE BOT SYNC</span>
+          </h1>
+          <p class="text-xs text-slate-400">Los Angeles County Sheriff's Department • Utilities & Management</p>
+        </div>
+      </div>
 
-      <div class="panel-frontend-container1">
-        <a href="https://play.teleporthq.io/signup" class="panel-frontend-link">
-          <div
-            aria-label="Sign up to TeleportHQ"
-            class="panel-frontend-container2"
-          >
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 19 21"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              class="panel-frontend-icon1"
-            >
-              <path
-                d="M9.1017 4.64355H2.17867C0.711684 4.64355 -0.477539 5.79975 -0.477539 7.22599V13.9567C-0.477539 15.3829 0.711684 16.5391 2.17867 16.5391H9.1017C10.5687 16.5391 11.7579 15.3829 11.7579 13.9567V7.22599C11.7579 5.79975 10.5687 4.64355 9.1017 4.64355Z"
-                fill="#B23ADE"
-              ></path>
-              <path
-                d="M10.9733 12.7878C14.4208 12.7878 17.2156 10.0706 17.2156 6.71886C17.2156 3.3671 14.4208 0.649963 10.9733 0.649963C7.52573 0.649963 4.73096 3.3671 4.73096 6.71886C4.73096 10.0706 7.52573 12.7878 10.9733 12.7878Z"
-                fill="#FF5C5C"
-              ></path>
-              <path
-                d="M17.7373 13.3654C19.1497 14.1588 19.1497 15.4634 17.7373 16.2493L10.0865 20.5387C8.67402 21.332 7.51855 20.6836 7.51855 19.0968V10.5141C7.51855 8.92916 8.67402 8.2807 10.0865 9.07221L17.7373 13.3654Z"
-                fill="#2874DE"
-              ></path>
-            </svg>
-            <span class="panel-frontend-text">Built in TeleportHQ</span>
-          </div>
+      <div class="flex items-center space-x-3">
+        <button onclick="switchTab('utilities')" id="tab-utilities" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-2">
+          <span>📊</span><span>Utilities Panel</span>
+        </button>
+        <button onclick="switchTab('cad')" id="tab-cad" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+          <span>🚨</span><span>CAD Dispatch</span>
+        </button>
+        <a href="/admin/HR" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 shadow-sm">
+          <span>👥</span><span>HR Portal</span>
+        </a>
+        <a href="/" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 shadow-sm">
+          <span>🏠</span><span>Home</span>
         </a>
       </div>
-      <link
-        rel="canonical"
-        href="https://amazing-single-locust-x2y6xs.teleporthq.site/panel-frontend"
-      />
+    </header>
+
+    <!-- UTILITIES PANEL VIEW -->
+    <main id="view-utilities" class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 overflow-hidden">
+
+      <!-- COLUMN 1: Profile & Shift / Toolbox (Col Span 3) -->
+      <section class="lg:col-span-3 flex flex-col space-y-6">
+        <!-- User Profile Card -->
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-5 shadow-xl backdrop-blur-sm relative overflow-hidden">
+          <div class="flex items-center space-x-4 mb-4">
+            <img id="user-avatar" src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png" alt="Discord PFP" class="w-14 h-14 rounded-full object-cover border-2 border-blue-500/40 shadow-lg shadow-blue-500/10" />
+            <div>
+              <h2 id="user-name" class="font-bold text-base text-white truncate max-w-[160px]">LASD Deputy</h2>
+              <p id="user-role-text" class="text-xs text-blue-400 font-medium">Verified Staff</p>
+            </div>
+          </div>
+
+          <!-- Status Badge -->
+          <div class="mb-5 flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded-xl px-3.5 py-2">
+            <div class="flex items-center space-x-2">
+              <span id="shift-dot" class="w-2.5 h-2.5 rounded-full bg-slate-500 animate-pulse"></span>
+              <span id="shift-status-label" class="text-xs font-bold uppercase tracking-wider text-slate-400">Offline</span>
+            </div>
+            <span id="shift-timer-display" class="text-xs font-mono font-bold text-slate-300">00:00:00</span>
+          </div>
+
+          <!-- Shift & Break Buttons -->
+          <div class="space-y-2.5">
+            <button onclick="toggleShift()" id="main-shift-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-2">
+              <span>🟢</span><span id="main-shift-text">Start Shift</span>
+            </button>
+            <button onclick="toggleBreak()" id="main-break-btn" disabled class="w-full bg-slate-800 text-slate-500 cursor-not-allowed py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2">
+              <span>☕</span><span id="main-break-text">Take Break</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbox Section -->
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-5 shadow-xl flex-1 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-bold text-sm text-white uppercase tracking-wider flex items-center space-x-2">
+                <span>🧰</span><span>Toolbox</span>
+              </h3>
+            </div>
+
+            <div class="space-y-2">
+              <button onclick="openLoaModal()" class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700/60 text-slate-200 py-2.5 px-4 rounded-xl text-xs font-semibold transition flex items-center space-x-3 shadow-sm">
+                <span>🏖️</span><span>Manage LOA</span>
+              </button>
+              <button onclick="switchLogMode('arrest')" class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700/60 text-slate-200 py-2.5 px-4 rounded-xl text-xs font-semibold transition flex items-center space-x-3 shadow-sm">
+                <span>🔒</span><span>Quick Arrest Log</span>
+              </button>
+              <button onclick="switchLogMode('citation')" class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700/60 text-slate-200 py-2.5 px-4 rounded-xl text-xs font-semibold transition flex items-center space-x-3 shadow-sm">
+                <span>📝</span><span>Quick Citation Log</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-6 pt-4 border-t border-slate-800 text-[11px] text-slate-500 leading-relaxed">
+            <div class="font-semibold text-slate-400 mb-1">DISCORD BOT CONNECTED</div>
+            Changes on web sync instantly with Discord bot & server roles.
+          </div>
+        </div>
+      </section>
+
+      <!-- COLUMN 2: Create New Log (Col Span 5) -->
+      <section class="lg:col-span-5 bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between overflow-y-auto">
+        <div>
+          <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+            <div class="flex items-center space-x-3">
+              <span id="form-icon" class="text-xl">🔒</span>
+              <h2 id="form-title" class="font-bold text-lg text-white">Create New Arrest Log</h2>
+            </div>
+            <!-- Toggle Log Type -->
+            <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
+              <button onclick="switchLogMode('arrest')" id="tab-btn-arrest" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-blue-600 text-white">Arrest</button>
+              <button onclick="switchLogMode('citation')" id="tab-btn-citation" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Citation</button>
+            </div>
+          </div>
+
+          <!-- ARREST FORM -->
+          <form id="arrest-form" onsubmit="submitArrestForm(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Suspect Roblox Username <span class="text-red-500">*</span></label>
+              <input type="text" id="arrest-suspect" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="Enter Roblox username" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Charges / Penal Code <span class="text-red-500">*</span></label>
+              <input type="text" id="arrest-charges" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. PC 241 - Assault on Peace Officer" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Fine Amount ($) & Jail Time <span class="text-red-500">*</span></label>
+              <input type="text" id="arrest-details" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. $5,000 / 30 Minutes" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Evidence Image Attachment</label>
+              <input type="file" id="arrest-image" accept="image/*" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Officer Notes</label>
+              <textarea id="arrest-notes" rows="2" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600 resize-none" placeholder="Brief summary..."></textarea>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl font-semibold text-sm transition shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-2">
+              <span>🚀</span><span>Submit Arrest Record to Discord</span>
+            </button>
+          </form>
+
+          <!-- CITATION FORM (Hidden by default) -->
+          <form id="citation-form" onsubmit="submitCitationForm(event)" class="space-y-4 hidden">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Civilian Roblox Username <span class="text-red-500">*</span></label>
+              <input type="text" id="cite-suspect" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="Enter civilian Roblox username" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Violation / Infraction <span class="text-red-500">*</span></label>
+              <input type="text" id="cite-violation" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. VC 22350 - Speeding" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Fine Amount ($) <span class="text-red-500">*</span></label>
+              <input type="text" id="cite-fine" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. $750" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Court Date</label>
+              <input type="text" id="cite-court" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="Optional court date (e.g. Friday 8 PM EST)" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Evidence Image Attachment</label>
+              <input type="file" id="cite-image" accept="image/*" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500" />
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3.5 rounded-xl font-semibold text-sm transition shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-2">
+              <span>📤</span><span>Submit Citation Record to Discord</span>
+            </button>
+          </form>
+        </div>
+
+        <div id="notification-banner" class="mt-4 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-400 hidden">
+          Notification status...
+        </div>
+      </section>
+
+      <!-- COLUMN 3: Arrest/Citation Logs Feed (Col Span 4) -->
+      <section class="lg:col-span-4 bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-6 shadow-xl flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+          <h3 class="font-bold text-sm text-white uppercase tracking-wider flex items-center space-x-2">
+            <span>📋</span><span>Arrest/Citation Logs</span>
+          </h3>
+          <button onclick="refreshLogs()" class="text-slate-400 hover:text-white p-1 rounded-lg transition" title="Refresh">
+            🔄
+          </button>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="relative mb-4">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-500">🔍</span>
+          <input type="text" id="log-search" oninput="filterLogs()" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-10 pr-12 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-500" placeholder="Search by username..." />
+        </div>
+
+        <!-- Logs Feed Container -->
+        <div id="logs-container" class="flex-1 overflow-y-auto space-y-3 pr-1">
+          <div class="p-4 bg-slate-900/40 border border-slate-800 rounded-xl text-center text-xs text-slate-500">
+            No recent logs submitted in this session. Submit a log to broadcast to Discord.
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- CAD Dispatch System View (Hidden by default) -->
+    <div id="view-cad" class="flex-1 flex flex-col hidden overflow-hidden relative">
+      <!-- Active Units Header Bar -->
+      <div class="bg-[#111c3a]/90 border-b border-slate-800 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <span class="text-sm font-bold uppercase tracking-wider text-white flex items-center space-x-2">
+            <span>👥</span><span>ACTIVE UNITS</span>
+            <span id="cad-active-count" class="text-xs font-mono bg-red-600/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full">10-7: 0</span>
+          </span>
+        </div>
+        <div class="flex items-center space-x-3 text-xs text-slate-400">
+          <span>Live CAD Synchronized</span>
+        </div>
+      </div>
+      <div class="h-1 bg-gradient-to-r from-red-600 via-rose-500 to-transparent"></div>
+
+      <!-- Active Units Table Container -->
+      <div class="flex-1 p-6 overflow-y-auto">
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
+                <th class="py-3 px-4">Unit Number</th>
+                <th class="py-3 px-4">Name</th>
+                <th class="py-3 px-4">Location</th>
+                <th class="py-3 px-4">Rank</th>
+                <th class="py-3 px-4">Status</th>
+              </tr>
+            </thead>
+            <tbody id="cad-units-tbody" class="divide-y divide-slate-800/60 text-xs text-slate-200">
+              <tr>
+                <td colspan="5" class="py-6 text-center text-slate-500">Loading active units...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bottom CAD Toolbar / Dock (matching small-img-cad.png) -->
+      <div class="bg-[#111c3a]/95 border-t border-slate-800 px-6 py-3 flex items-center justify-between z-40">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center font-bold text-white shadow-lg shadow-red-600/30">
+            A
+          </div>
+          <!-- Dropdowns -->
+          <div class="relative">
+            <button onclick="toggleCadMenu('lookup-menu')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+              <span>Lookup</span><span>▾</span>
+            </button>
+            <div id="lookup-menu" class="absolute bottom-full left-0 mb-2 w-44 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden z-50">
+              <button onclick="performLookup('Civilian')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">👤 Civilian Lookup</button>
+              <button onclick="performLookup('Vehicle')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">🚗 Vehicle Lookup</button>
+              <button onclick="performLookup('Warrant')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">📜 Warrant Lookup</button>
+            </div>
+          </div>
+
+          <div class="relative">
+            <button onclick="toggleCadMenu('records-menu')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+              <span>Records</span><span>▾</span>
+            </button>
+            <div id="records-menu" class="absolute bottom-full left-0 mb-2 w-44 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden z-50">
+              <button onclick="switchTab('utilities'); toggleCadMenu('records-menu')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">🔒 Arrest Logs</button>
+              <button onclick="switchTab('utilities'); toggleCadMenu('records-menu')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">📝 Citation Logs</button>
+            </div>
+          </div>
+
+          <button onclick="alert('Active Call view')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+            <span>📋 My Call</span>
+          </button>
+
+          <button onclick="alert('Self Dispatch modal')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+            <span>🌐 Self Dispatch</span>
+          </button>
+
+          <button onclick="promptChangeCallsign()" class="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-1.5">
+            <span>📻</span><span>Change Callsign</span>
+          </button>
+
+          <button onclick="promptChangeLocation()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-indigo-600/20 flex items-center space-x-1.5">
+            <span>📍</span><span>Change Location</span>
+          </button>
+        </div>
+
+        <!-- Right Side: Status Selector & Panic -->
+        <div class="flex items-center space-x-3 relative">
+          <div class="relative">
+            <button onclick="toggleCadMenu('status-popup')" id="cad-status-trigger" class="bg-red-600/20 border border-red-500/40 text-red-400 hover:bg-red-600/30 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+              <span id="cad-current-status-label">10-7</span>
+              <span>▾</span>
+            </button>
+
+            <!-- Status Dropdown Popup -->
+            <div id="status-popup" class="absolute bottom-full right-0 mb-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden z-50 space-y-1">
+              <button onclick="setCadStatus('10-7')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span><span>10-7 (Out of Service)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-6')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>10-6 (Busy)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-8')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-teal-400"></span><span>10-8 (In Service)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-76')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span><span>10-76 (En Route)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-97')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span><span>10-97 (At Scene)</span></span>
+              </button>
+              <div class="border-t border-slate-800 my-1"></div>
+              <button onclick="setCadStatus('Panic')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-rose-400 hover:bg-rose-500/20 transition flex items-center space-x-2">
+                <span>⚠️</span><span>Panic (EMERGENCY)</span>
+              </button>
+            </div>
+          </div>
+
+          <button onclick="setCadStatus('Panic')" class="bg-rose-600 hover:bg-rose-500 text-white p-2.5 rounded-xl transition shadow-lg shadow-rose-600/30 flex items-center justify-center" title="Panic Button">
+            ⚡
+          </button>
+        </div>
+      </div>
     </div>
+
+    <!-- JavaScript Application Logic -->
     <script>
-      (function () {
-        var PROBE_ATTR = 'data-teleport-slider-probe';
-        var PROBE_MAX_LIFETIME_MS = 30000;
-        var SwiperCtor = null;
-        var capturedModules = null;
-        var probeEl = null;
-        var trackedInstances = [];
-        function safeJsonParse(raw) {
-          if (!raw) return null;
-          var decoder = document.createElement('textarea');
-          decoder.innerHTML = raw;
-          try { return JSON.parse(decoder.value); } catch (e) { return null; }
-        }
-        function toPositiveInt(v, fallback) {
-          var n = parseInt(v, 10);
-          return (!isNaN(n) && n > 0) ? n : fallback;
-        }
-        function toSpacing(v, fallback) {
-          // Zero is a legitimate gap, so it must not fall through to the default
-          // the way toPositiveInt makes it.
-          var n = parseInt(v, 10);
-          return (!isNaN(n) && n >= 0) ? n : fallback;
-        }
-        function buildBreakpoints(el) {
-          var raw = safeJsonParse(el.getAttribute('data-breakpoints')) || {};
-          var mobile = raw.mobile || {};
-          var tablet = raw.tablet || {};
-          var desktop = raw.desktop || {};
-          // With no breakpoint map, derive the per-width slide count from the
-          // slider's OWN base config instead of assuming a multi-card carousel.
-          // Hardcoding 3-on-desktop here overrode every single-slide slider that
-          // omits the map — the generator tells the model to omit it for hero
-          // carousels, and the gallery lightbox omitted it too — which fits every
-          // slide onto one page and leaves the arrows and bullets with nowhere to
-          // go. Same derivation the editor uses in flows/slider.ts.
-          var baseSlidesPerView = toPositiveInt(el.getAttribute('data-slides-per-view'), 1);
-          var bps = {};
-          bps[0] = {
-            slidesPerView: toPositiveInt(mobile.slidesPerView, 1),
-            spaceBetween: toSpacing(mobile.spaceBetween, 12),
-          };
-          bps[768] = {
-            slidesPerView: toPositiveInt(tablet.slidesPerView, Math.min(baseSlidesPerView, 2)),
-            spaceBetween: toSpacing(tablet.spaceBetween, 16),
-          };
-          bps[1024] = {
-            slidesPerView: toPositiveInt(desktop.slidesPerView, baseSlidesPerView),
-            spaceBetween: toSpacing(desktop.spaceBetween, 24),
-          };
-          return bps;
-        }
-        function buildConfig(el) {
-          var cfg = {
-            slidesPerView: toPositiveInt(el.getAttribute('data-slides-per-view'), 1),
-            spaceBetween: toPositiveInt(el.getAttribute('data-space-between'), 0),
-            breakpoints: buildBreakpoints(el),
-          };
-          // Carry over the module classes that the CDN bundle loaded
-          // initially (Navigation / Pagination / Autoplay). Without these
-          // the re-instantiated Swiper only has Resize + Observer — the
-          // navigation arrows and pagination bullets become dead.
-          if (capturedModules && capturedModules.length > 0) {
-            cfg.modules = capturedModules.slice();
-          }
-          if (el.getAttribute('data-pagination') === 'true') {
-            var paginationEl = el.querySelector('.swiper-pagination');
-            if (paginationEl) cfg.pagination = { el: paginationEl, clickable: true, type: 'bullets' };
-          }
-          if (el.getAttribute('data-navigation') === 'true') {
-            var nextEl = el.querySelector('.swiper-button-next');
-            var prevEl = el.querySelector('.swiper-button-prev');
-            if (nextEl && prevEl) cfg.navigation = { nextEl: nextEl, prevEl: prevEl };
-          }
-          return cfg;
-        }
-        function captureFromInstance(instance) {
-          if (!instance) return;
-          if (!SwiperCtor && instance.constructor && instance.constructor.name === 'Swiper') {
-            SwiperCtor = instance.constructor;
-          }
-          if (!capturedModules && instance.params && Array.isArray(instance.params.modules)) {
-            // Clone so Swiper's own mutation of params.modules during teardown
-            // does not surprise us on a subsequent re-instantiation.
-            capturedModules = instance.params.modules.slice();
-          }
-        }
-        function createCtorProbe() {
-          // This script is inline in <body>, so it runs while the document is
-          // still parsing — before the deferred CDN bundle executes. The probe
-          // is therefore guaranteed to be present for the bundle's one and only
-          // init pass. It is appended at the end of <body>, after the Next.js
-          // root, so it is also the LAST element that pass reaches: even if the
-          // bundle ever choked on it, every real slider would already be built.
-          var host = document.body || document.documentElement;
-          if (!host) return;
-          try {
-            var el = document.createElement('div');
-            el.setAttribute('data-thq', 'slider');
-            el.setAttribute(PROBE_ATTR, 'true');
-            el.setAttribute('aria-hidden', 'true');
-            el.className = 'swiper';
-            el.style.cssText =
-              'position:absolute;left:-9999px;top:0;width:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none';
-            el.innerHTML =
-              '<div data-thq="slider-wrapper" class="swiper-wrapper">' +
-              '<div data-thq="slider-slide" class="swiper-slide"></div></div>';
-            host.appendChild(el);
-            probeEl = el;
-            // Never leave the probe behind if the CDN bundle fails to load at all.
-            setTimeout(disposeProbe, PROBE_MAX_LIFETIME_MS);
-          } catch (_e) { /* best-effort */ }
-        }
-        function disposeProbe() {
-          if (!probeEl) return;
-          var el = probeEl;
-          probeEl = null;
-          try { if (el.swiper && !el.swiper.destroyed) el.swiper.destroy(true, false); } catch (_e) { /* best-effort */ }
-          try { if (el.parentNode) el.parentNode.removeChild(el); } catch (_e) { /* best-effort */ }
-        }
-        function captureCtorFromProbe() {
-          if (!probeEl) return;
-          if (probeEl.swiper) {
-            captureFromInstance(probeEl.swiper);
-          }
-          if (SwiperCtor) {
-            disposeProbe();
-          }
-        }
-        function trackInstance(instance) {
-          instance.__teleportPatched = true;
-          trackedInstances.push(instance);
-          return instance;
-        }
-        function reapDetachedInstances() {
-          // React unmounts a slider that lives inside a conditionally rendered
-          // subtree — the product gallery lightbox — every time it closes. That
-          // leaves our instance bound to a detached element with its window
-          // resize handler and ResizeObserver still live, and every reopen adds
-          // another one. Only DETACHED elements are reaped: destroy() nulls the
-          // element's swiper reference, which would sabotage a live element whose
-          // instance had since been replaced by someone else.
-          if (trackedInstances.length === 0) return;
-          var kept = [];
-          for (var i = 0; i < trackedInstances.length; i++) {
-            var instance = trackedInstances[i];
-            var el = instance && instance.el;
-            if (!el) continue;
-            if (document.contains(el)) {
-              kept.push(instance);
-              continue;
-            }
-            try { if (!instance.destroyed) instance.destroy(true, false); } catch (_e) { /* best-effort */ }
-          }
-          trackedInstances = kept;
-        }
-        function collectSliders() {
-          var all = document.querySelectorAll('[data-thq="slider"]');
-          var sliders = [];
-          for (var i = 0; i < all.length; i++) {
-            if (all[i].hasAttribute(PROBE_ATTR)) continue;
-            sliders.push(all[i]);
-          }
-          return sliders;
-        }
-        function rebuildPaginationDom(instance) {
-          // Pagination bullets can be re-appended after our construction by
-          // the CDN bundle's scheduled post-init render or by React
-          // reconciliation during SPA back-nav. We re-query the pagination
-          // container from the live instance (rather than a captured
-          // reference) because React may have replaced the container DOM
-          // node during a re-mount.
-          try {
-            if (instance.destroyed) return;
-            var pagEl = instance.pagination && instance.pagination.el;
-            if (pagEl) pagEl.innerHTML = '';
-            if (instance.pagination && typeof instance.pagination.render === 'function') {
-              instance.pagination.render();
-            }
-            if (instance.pagination && typeof instance.pagination.update === 'function') {
-              instance.pagination.update();
-            }
-          } catch (_e) { /* best-effort */ }
-        }
-        function replaceWithFreshInstance(el) {
-          // Destroy the CDN-constructed Swiper and rebuild it with the
-          // proper config up front. Patching in place (setBreakpoint +
-          // update) leaves pagination stuck at the original bullet count
-          // (5 for 5 slides at the default slidesPerView=1), Swiper's
-          // external pagination.render() APPENDS instead of rebuilding,
-          // and there is no other public API to force a clean rebuild of
-          // the pagination subsystem. A fresh construction with the right
-          // breakpoints, pagination el, and navigation els gives us the
-          // correct page count (ceil(slides / slidesPerView)) and the
-          // first bullet correctly marked active.
-          try {
-            var pagEl = el.querySelector('.swiper-pagination');
-            try { el.swiper.destroy(true, true); } catch (_destroyErr) { /* best-effort */ }
-            // Clear any pagination bullets Swiper's destroy left behind so
-            // our new render() does not append to them.
-            if (pagEl) pagEl.innerHTML = '';
-            if (!SwiperCtor) return false;
-            var instance = trackInstance(new SwiperCtor(el, buildConfig(el)));
-            // The CDN bundle schedules a delayed pagination render that
-            // fires even after our destroy-and-recreate, re-appending
-            // bullets into the container. React can also restore stale
-            // bullet nodes from the prior page visit during SPA back-nav
-            // reconciliation. Rebuild at several timings so any late
-            // injection is mopped up.
-            setTimeout(function () { rebuildPaginationDom(instance); }, 100);
-            setTimeout(function () { rebuildPaginationDom(instance); }, 400);
-            setTimeout(function () { rebuildPaginationDom(instance); }, 1000);
-            return true;
-          } catch (_err) {
-            return false;
-          }
-        }
-        var isWorking = false;
-        function ensureSwiper(el) {
-          if (!el) return false;
-          if (el.swiper && el.swiper.__teleportPatched) return true;
-          // Guard against reentry: constructing or modifying a Swiper mutates
-          // the DOM, which re-fires the outer MutationObserver synchronously
-          // and would otherwise loop back into this function against a
-          // half-initialised instance.
-          if (isWorking) return false;
-          isWorking = true;
-          try {
-            if (el.swiper) {
-              // Don't touch a Swiper that the CDN bundle is still constructing
-              // — interfering before it finishes corrupts the layout. The
-              // destroyed check covers the window between destroy and the
-              // next mount.
-              if (el.swiper.destroyed) return false;
-              captureFromInstance(el.swiper);
-              // Rebuild the instance from scratch with the correct config:
-              // the CDN's default config ignores our breakpoints and the
-              // pagination bullet count is locked to the original slide
-              // count. A destroy + re-create is the only way to get the
-              // right page-count pagination plus a correctly marked first
-              // active bullet.
-              return replaceWithFreshInstance(el);
-            }
-            // No .swiper attached — either the CDN bundle hasn't fired yet
-            // (poll will retry), or the element was freshly re-mounted by
-            // Next.js SPA back/forward nav, or a modal just revealed a slider
-            // the bundle never saw. The bundle only inits on the initial
-            // DOMContentLoaded (plus a URL change), so it won't re-init any of
-            // those. Construct our own instance with the captured ctor + modules.
-            if (!SwiperCtor) return false;
-            try {
-              // Clear any stale pagination/navigation DOM that survived the
-              // re-mount so the fresh Swiper's render() doesn't append to
-              // leftover bullets/arrows from the previous page visit.
-              var stalePagination = el.querySelector('.swiper-pagination');
-              if (stalePagination) stalePagination.innerHTML = '';
-              trackInstance(new SwiperCtor(el, buildConfig(el)));
-              return true;
-            } catch (_err) {
-              return false;
-            }
-          } finally {
-            isWorking = false;
-          }
-        }
-        function normalisePaginationCount() {
-          // Defensive cleanup: any time the bootstrapper's trigger fires
-          // (initial load, pageshow, or DOM mutation), reconcile the
-          // pagination DOM with the Swiper instance's own bullet tracking.
-          // The CDN bundle and React's SPA reconciliation can leak extra
-          // bullet elements into the container; this keeps the visible
-          // bullet count aligned with the post-breakpoint page count.
-          var all = collectSliders();
-          for (var i = 0; i < all.length; i++) {
-            var el = all[i];
-            if (!el.swiper || !el.swiper.__teleportPatched) continue;
-            if (el.swiper.destroyed) continue;
-            var pagEl = el.swiper.pagination && el.swiper.pagination.el;
-            if (!pagEl) continue;
-            var domCount = pagEl.querySelectorAll('.swiper-pagination-bullet').length;
-            var tracked =
-              el.swiper.pagination && el.swiper.pagination.bullets
-                ? el.swiper.pagination.bullets.length
-                : 0;
-            if (domCount !== tracked && tracked > 0) {
-              rebuildPaginationDom(el.swiper);
-            }
-          }
-        }
-        function ensureAll() {
-          captureCtorFromProbe();
-          reapDetachedInstances();
-          var all = collectSliders();
-          var allDone = all.length > 0;
-          for (var i = 0; i < all.length; i++) {
-            if (!ensureSwiper(all[i])) allDone = false;
-          }
-          normalisePaginationCount();
-          return allDone;
-        }
-        var pollTimer = null;
-        function startPolling() {
-          if (pollTimer) return;
-          var tries = 0;
-          pollTimer = setInterval(function () {
-            tries += 1;
-            if (ensureAll() || tries >= 80) {
-              clearInterval(pollTimer);
-              pollTimer = null;
-            }
-          }, 100);
-        }
-        function trigger() {
-          if (!ensureAll()) startPolling();
-        }
-        // Delay the first trigger until after the CDN bundle has finished
-        // its own init pass. Running too early lets the MutationObserver
-        // fire while the CDN's Swiper is half-constructed and our patch
-        // interferes with layout.
-        function scheduleInitialTrigger() {
-          setTimeout(trigger, 200);
-        }
-        createCtorProbe();
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', scheduleInitialTrigger);
-        } else {
-          scheduleInitialTrigger();
-        }
-        window.addEventListener('pageshow', trigger);
-        // Observe the whole document so Next.js SPA back-nav (which re-mounts
-        // the slider element without an attached .swiper instance) triggers
-        // re-instantiation via the captured ctor. Don't invoke the patch
-        // synchronously on each mutation — the CDN bundle's own Swiper
-        // construction fires many mutations and we'd otherwise patch a
-        // half-initialised instance. Debounce through a macrotask so the
-        // current sync mutation chain finishes first.
-        var mutationPending = false;
+      let currentUser = {
+        id: 1422647977880584324,
+        username: "LASD Deputy",
+        avatar: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png",
+        roles: ["Verified Staff"],
+        shift: { active: false, on_break: false, start_time: null, break_time: 0.0, break_start: 0.0 },
+        quota: { seconds: 0.0, required: 7200, met: false }
+      };
+      let currentLogType = 'arrest';
+      let localSubmittedLogs = [];
+
+      async function fetchUserData() {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1500);
         try {
-          var observer = new MutationObserver(function () {
-            if (mutationPending) return;
-            mutationPending = true;
-            setTimeout(function () { mutationPending = false; trigger(); }, 150);
+          const res = await fetch('/api/u4000);
+        try {
+          const res = await fetch('/api/user', { signal: controller.signal });
+          clearTimeout(timeoutId);
+          console.log("[FRONTEND LOG] /api/user response status:", res.status);
+          if (!res.ok) {
+            throw new Error(`Failed to fetch user: HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          console.log("[FRONTEND LOG] /api/user data received:", data);
+          if (data && data.username) {
+            currentUser = data;
+            updateUI();
+          }
+        } catch (err) {
+          clearTimeout(timeoutId);
+          console.error("[FRONTEND LOG] Error fetching /api/user (using fallback):", err);
+          updateUI( Deputy";
+        const userAvatarEl = document.getElementById('user-avatar');
+        if (userAvatarEl && currentUser.avatar) userAvatarEl.src = currentUser.avatar;
+        const userRoleEl = document.getElementById('user-role-text');
+        if (userRoleEl) userRoleEl.textContent = (currentUser.roles && currentUser.roles.length > 0) ? currentUser.roles[0] : 'Verified Staff';
+
+        const shift = currentUser.shift || { active: false, on_break: false };
+        const dot = document.getElementById('shift-dot');
+        const label = document.getElementById('shift-status-label');
+        const shiftBtn = document.getElementById('main-shift-btn');
+        const shiftText = document.getElementById('main-shift-text');
+        const breakBtn = document.getElementById('main-break-btn');
+        const breakText = document.getElementById('main-break-text');
+
+        if (!dot || !label || !shiftBtn || !shiftText || !breakBtn || !breakText) return;
+
+        if (shift.active) {
+          if (shift.on_break) {
+            dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping";
+            label.textContent = "On Break";
+            shiftBtn.className = "w-full bg-amber-600 hover:bg-amber-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-amber-600/20 flex items-center justify-center space-x-2";
+            shiftText.textContent = "End Shift";
+            breakBtn.disabled = false;
+            breakBtn.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2";
+            breakText.textContent = "Resume Shift";
+          } else {
+            dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+            label.textContent = "On Shift";
+            shiftBtn.className = "w-full bg-rose-600 hover:bg-rose-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-rose-600/20 flex items-center justify-center space-x-2";
+            shiftText.textContent = "End Shift";
+            breakBtn.disabled = false;
+            breakBtn.className = "w-full bg-amber-600 hover:bg-amber-500 text-white py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2";
+            breakText.textContent = "Take Break";
+          }
+        } else {
+          dot.className = "w-2.5 h-2.5 rounded-full bg-slate-500";
+          label.textContent = "Offline";
+          shiftBtn.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-2";
+          shiftText.textContent = "Start Shift";
+          breakBtn.disabled = true;
+          breakBtn.className = "w-full bg-slate-800 text-slate-500 cursor-not-allowed py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2";
+          breakText.textContent = "Take Break";
+        }
+      }
+
+      async function toggleShift() {
+        if (!currentUser) {
+          currentUser = {
+            username: "LASD Deputy",
+            avatar: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png",
+            roles: ["Verified Staff"],
+            shift: { active: false, on_break: false }
+          };
+        }
+        const active = currentUser.shift && currentUser.shift.active;
+        const endpoint = active ? '/api/shift/end' : '/api/shift/start';
+
+        try {
+          const res = await fetch(endpoint, { method: 'POST' });
+          if (res.ok) {
+            await fetchUserData();
+            showNotification(active ? 'Shift ended successfully!' : 'Shift started successfully!', 'success');
+          } else {
+            const data = await res.json().catch(() => ({ error: 'Action failed' }));
+            showNotification(data.error || 'Action failed', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error', 'error');
+        }
+      }
+
+      async function toggleBreak() {
+        if (!currentUser) {
+          currentUser = { shift: { active: true, on_break: false } };
+        }
+        try {
+          const res = await fetch('/api/shift/break', { method: 'POST' });
+          if (res.ok) {
+            await fetchUserData();
+            showNotification('Break status updated!', 'success');
+          } else {
+            const data = await res.json().catch(() => ({ error: 'Break update failed' }));
+            showNotification(data.error || 'Break update failed', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error', 'error');
+        }
+      }
+
+      function switchLogMode(type) {
+        currentLogType = type;
+        const arrestForm = document.getElementById('arrest-form');
+        const citationForm = document.getElementById('citation-form');
+        const tabArrest = document.getElementById('tab-btn-arrest');
+        const tabCitation = document.getElementById('tab-btn-citation');
+        const formTitle = document.getElementById('form-title');
+        const formIcon = document.getElementById('form-icon');
+
+        if (type === 'arrest') {
+          arrestForm.classList.remove('hidden');
+          citationForm.classList.add('hidden');
+          tabArrest.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-blue-600 text-white";
+          tabCitation.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white";
+          formTitle.textContent = "Create New Arrest Log";
+          formIcon.textContent = "🔒";
+        } else {
+          arrestForm.classList.add('hidden');
+          citationForm.classList.remove('hidden');
+          tabCitation.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white";
+          tabArrest.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white";
+          formTitle.textContent = "Create New Citation Log";
+          formIcon.textContent = "📝";
+        }
+      }
+
+      async function submitArrestForm(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        const suspect = document.getElementById('arrest-suspect').value;
+        const charges = document.getElementById('arrest-charges').value;
+        const details = document.getElementById('arrest-details').value;
+        const notes = document.getElementById('arrest-notes').value;
+
+        formData.append('user', suspect);
+        formData.append('reason', `${charges} - ${details}${notes ? ' (Notes: ' + notes + ')' : ''}`);
+
+        const img = document.getElementById('arrest-image').files[0];
+        if (img) formData.append('image', img);
+
+        try {
+          const res = await fetch('/api/arrest', {
+            method: 'POST',
+            body: formData
           });
-          observer.observe(document.documentElement, { childList: true, subtree: true });
-        } catch (_e) { /* MutationObserver unsupported — polling still covers initial load */ }
-      })();
+          const resData = await res.json();
+          if (res.ok) {
+            showNotification('Arrest record submitted to Discord successfully!', 'success');
+            document.getElementById('arrest-form').reset();
+            addLogItem({ type: 'Arrest', suspect, details: `${charges} (${details})`, time: 'Just now' });
+          } else {
+            showNotification(resData.error || 'Failed to submit arrest log', 'error');
+          }
+        } catch (err) {
+          showNotification('Network error submitting arrest log', 'error');
+        }
+      }
+
+      async function submitCitationForm(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        const suspect = document.getElementById('cite-suspect').value;
+        const violation = document.getElementById('cite-violation').value;
+        const fine = document.getElementById('cite-fine').value;
+        const courtDate = document.getElementById('cite-court').value || 'Not scheduled';
+
+        formData.append('user', suspect);
+        formData.append('reason', `${violation} - ${fine}`);
+        formData.append('court_date', courtDate);
+
+        const img = document.getElementById('cite-image').files[0];
+        if (img) formData.append('image', img);
+
+        try {
+          const res = await fetch('/api/citation', {
+            method: 'POST',
+            body: formData
+          });
+          const resData = await res.json();
+          if (res.ok) {
+            showNotification('Citation record submitted to Discord successfully!', 'success');
+            document.getElementById('citation-form').reset();
+            addLogItem({ type: 'Citation', suspect, details: `${violation} - ${fine} (Court: ${courtDate})`, time: 'Just now' });
+          } else {
+            showNotification(resData.error || 'Failed to submit citation log', 'error');
+          }
+        } catch (err) {
+          showNotification('Network error submitting citation log', 'error');
+        }
+      }
+
+      function addLogItem(log) {
+        localSubmittedLogs.unshift(log);
+        renderLogs();
+      }
+
+      function renderLogs() {
+        const container = document.getElementById('logs-container');
+        const query = document.getElementById('log-search').value.toLowerCase();
+
+        const filtered = localSubmittedLogs.filter(l => l.suspect.toLowerCase().includes(query) || l.details.toLowerCase().includes(query));
+
+        if (filtered.length === 0) {
+          container.innerHTML = `<div class="p-4 bg-slate-900/40 border border-slate-800 rounded-xl text-center text-xs text-slate-500">No logs matching query.</div>`;
+          return;
+        }
+
+        container.innerHTML = filtered.map(l => `
+          <div class="p-3 bg-slate-900/60 border border-slate-800/80 rounded-xl space-y-1">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold ${l.type === 'Arrest' ? 'text-red-400' : 'text-amber-400'}">${l.type}: ${l.suspect}</span>
+              <span class="text-[10px] text-slate-500">${l.time}</span>
+            </div>
+            <p class="text-xs text-slate-300 font-mono">${l.details}</p>
+          </div>
+        `).join('');
+      }
+
+      function filterLogs() {
+        renderLogs();
+      }
+
+      function refreshLogs() {
+        showNotification('Logs feed synchronized with Discord bot.', 'success');
+      }
+
+      function openLoaModal() {
+        alert('LOA Management portal can be accessed via Discord commands or HR portal.');
+      }
+
+      function showNotification(msg, type) {
+        const banner = document.getElementById('notification-banner');
+        banner.textContent = msg;
+        banner.className = `mt-4 p-3 rounded-xl border text-xs font-semibold ${type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`;
+        banner.classList.remove('hidden');
+        setTimeout(() => banner.classList.add('hidden'), 4000);
+      }
+
+      // Live shift timer ticker
+      setInterval(() => {
+        if (currentUser && currentUser.shift.active && currentUser.shift.start_time) {
+          const now = Date.now() / 1000;
+          const elapsed = Math.floor(now - currentUser.shift.start_time);
+          const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+          const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+          const s = String(elapsed % 60).padStart(2, '0');
+          document.getElementById('shift-timer-display').textContent = `${h}:${m}:${s}`;
+        } else {
+          document.getElementById('shift-timer-display').textContent = "00:00:00";
+        }
+      }, 1000);
+
+      let currentTab = 'utilities';
+      let currentCadStatus = '10-7';
+
+      function switchTab(tab) {
+        currentTab = tab;
+        const utilView = document.getElementById('view-utilities');
+        const cadView = document.getElementById('view-cad');
+        const btnUtil = document.getElementById('tab-utilities');
+        const btnCad = document.getElementById('tab-cad');
+
+        if (tab === 'utilities') {
+          utilView.classList.remove('hidden');
+          cadView.classList.add('hidden');
+          btnUtil.className = "bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-2";
+          btnCad.className = "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2";
+        } else {
+          utilView.classList.add('hidden');
+          cadView.classList.remove('hidden');
+          btnCad.className = "bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-2";
+          btnUtil.className = "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2";
+          fetchCadUnits();
+        }
+      }
+
+      function toggleCadMenu(menuId) {
+        const menu = document.getElementById(menuId);
+        ['lookup-menu', 'records-menu', 'status-popup'].forEach(id => {
+          if (id !== menuId) document.getElementById(id).classList.add('hidden');
+        });
+        menu.classList.toggle('hidden');
+      }
+
+      let window._panicPlaying = false;
+
+      async function fetchCadUnits() {
+        try {
+          const res = await fetch('/api/units');
+          if (!res.ok) return;
+          const data = await res.json();
+          const units = data.units || [];
+
+          document.getElementById('cad-active-count').textContent = `Active Units: ${units.length}`;
+          const tbody = document.getElementById('cad-units-tbody');
+
+          if (units.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-500">No active units on duty. Start a shift to appear on CAD.</td></tr>`;
+            return;
+          }
+
+          let hasPanic = false;
+          units.forEach(u => {
+            if (u.status === 'Panic') hasPanic = true;
+          });
+
+          if (hasPanic && !window._panicPlaying) {
+            window._panicPlaying = true;
+            try {
+              const audio = new Audio('/panic-button.mp3');
+              audio.play().catch(e => console.log("Audio play blocked:", e));
+              setTimeout(() => { window._panicPlaying = false; }, 10000);
+            } catch (e) {
+              window._panicPlaying = false;
+            }
+          }
+
+          tbody.innerHTML = units.map(u => {
+            let statusColor = 'bg-red-500 text-red-400 bg-red-600/20 border-red-500/30';
+            if (u.status === '10-6') statusColor = 'bg-amber-500 text-amber-400 bg-amber-600/20 border-amber-500/30';
+            if (u.status === '10-8') statusColor = 'bg-teal-400 text-teal-300 bg-teal-600/20 border-teal-500/30';
+            if (u.status === '10-76') statusColor = 'bg-blue-500 text-blue-400 bg-blue-600/20 border-blue-500/30';
+            if (u.status === '10-97') statusColor = 'bg-emerald-500 text-emerald-400 bg-emerald-600/20 border-emerald-500/30';
+            if (u.status === 'Panic') statusColor = 'bg-rose-500 text-rose-300 bg-rose-600/30 border-rose-500/50 animate-pulse';
+
+            return `
+              <tr class="hover:bg-slate-900/40 transition">
+                <td class="py-3.5 px-4 font-mono font-bold text-white">${u.unit_number}</td>
+                <td class="py-3.5 px-4 font-semibold text-white">${u.name}</td>
+                <td class="py-3.5 px-4 text-slate-300">${u.location}</td>
+                <td class="py-3.5 px-4 text-slate-400">${u.rank}</td>
+                <td class="py-3.5 px-4">
+                  <span class="inline-flex items-center space-x-1.5 border px-2.5 py-1 rounded-full font-bold text-[11px] ${statusColor}">
+                    <span class="w-2 h-2 rounded-full"></span>
+                    <span>${u.status}</span>
+                  </span>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        } catch (e) {
+          console.error("Error fetching CAD units:", e);
+        }
+      }
+
+      function promptChangeCallsign() {
+        const callsign = prompt("Enter new Callsign / Unit Number (e.g. 1-A-12):", "1-A-1");
+        if (callsign) {
+          fetch('/api/units/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ unit_number: callsign })
+          }).then(res => {
+            if (res.ok) {
+              showNotification(`Callsign updated to ${callsign}`, 'success');
+              fetchCadUnits();
+            } else {
+              showNotification('Failed to update callsign', 'error');
+            }
+          });
+        }
+      }
+
+      async function setCadStatus(status) {
+        currentCadStatus = status;
+        document.getElementById('cad-current-status-label').textContent = status;
+        const popup = document.getElementById('status-popup');
+        if (popup) popup.classList.add('hidden');
+
+        if (status === 'Panic') {
+          try {
+            const audio = new Audio('/panic-button.mp3');
+            audio.play().catch(e => console.log("Audio play blocked:", e));
+          } catch (e) {}
+        }
+
+        try {
+          const res = await fetch('/api/units/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+          });
+          if (res.ok) {
+            showNotification(`CAD Status updated to ${status}`, 'success');
+            fetchCadUnits();
+          } else {
+            const err = await res.json();
+            showNotification(err.error || 'Failed to update status', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error updating CAD status', 'error');
+        }
+      }
+
+      function promptChangeLocation() {
+        const location = prompt("Enter new Location / Sector (e.g. Sector 4 / Downtown):", "Patrol Area 1");
+        if (location) {
+          fetch('/api/units/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ location })
+          }).then(res => {
+            if (res.ok) {
+              showNotification(`Location updated to ${location}`, 'success');
+              fetchCadUnits();
+            } else {
+              showNotification('Failed to update location', 'error');
+            }
+          });
+        }
+      }
+
+      function performLookup(type) {
+        toggleCadMenu('lookup-menu');
+        const query = prompt(`Enter ${type} name or details to search in current records:`, "");
+        if (!query) return;
+
+        switchTab('utilities');
+        document.getElementById('log-search').value = query;
+        filterLogs();
+        showNotification(`Searched records for "${query}" (${type})`, 'success');
+      }
+
+      // Initial UI render with default user profile, then fetch live data and poll
+      updateUI();
+      fetchUserData();
+      setInterval(fetchUserData, 3000);
     </script>
   </body>
 </html>

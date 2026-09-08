@@ -1,0 +1,26 @@
+Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/main.py", line 387, in api_shift_start_handler
+    save_shift_data()
+    ^^^^^^^^^^^^^^^
+NameError: name 'save_shift_data' is not defined
+
+NameError: name 'save_shift_data' is not defined
+Error handling request from 127.0.0.1
+Traceback (most recent call last):
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/aiohttp/web_protocol.py", line 575, in _handle_request
+    resp = await request_handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/.pythonlibs/lib/python3.11/site-packages/aiohttp/web_app.py", line 559, in _handle
+    return await handler(request)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/workspace/main.py", line 387, in api_shift_start_handler
+    save_shift_data()
+    ^^^^^^^^^^^^^^^
+NameError: name 'save_shift_data' is not defined

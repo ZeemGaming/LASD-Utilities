@@ -6,6 +6,7 @@ import random
 import datetime
 import asyncio
 import tempfile
+import io
 from zoneinfo import ZoneInfo
 from aiohttp import ClientSession, ClientTimeout, web
 import discord
@@ -18,13 +19,10 @@ QUOTA_LOG_CHANNEL_ID = 1544780775948419082
 STRIKE_LOG_CHANNEL_ID = 1538076682664017944
 ARREST_LOG_CHANNEL_ID = 1538076682441724001
 CITE_LOG_CHANNEL_ID = 1538076682441724002
-SHIFT_FARMING_ALERT_CHANNEL_ID = 1544201906908430436
 VERIFICATION_CHANNEL_ID = 1545124075989504170
 VERIFIED_ROLE_ID = 1545109313276878879
-SHIFT_FARMING_THRESHOLD_SECONDS = 10 * 60 * 60
 QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
 WEB_PORT = int(os.getenv("PORT", "5000"))
-SHIFT_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "shifts.json")
 VERIFICATION_DATA_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "verification.json"
@@ -55,11 +53,56 @@ ALLOWED_ROLE_IDS = {
     1538076681640747133
 }
 
+MR_PLUS_ROLE_IDS = {
+    1538076681628028956,
+    1538076681628028955,
+    1538076681628028957,
+    1538076681632219216,
+    1538076681640747130,
+    1538076681640747131,
+    1539413609388712006,
+    1538076681640747132,
+    1538076681640747133,
+    1538076681640747135,
+    1538076681640747136,
+    1539431991080910899
+} | ALLOWED_ROLE_IDS
+
 # --- BOT SETUP ---
 intents = discord.Intents.default()
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+
+WEBSITE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "LASD-Utilities-Website")
+
+
+async def website_handler(request: web.Request) -> web.StreamResponse:
+    """Serves the LASD Utilities website static files."""
+    path = request.path
+    if path == "/" or path == "":
+        file_path = os.path.join(WEBSITE_DIR, "index.html")
+    else:
+        clean_path = path.lstrip("/")
+        # Prevent directory traversal
+        safe_path = os.path.normpath(clean_path)
+        if safe_path.startswith(".."):
+            return web.Response(text="Forbidden", status=403)
+        file_path = os.path.join(WEBSITE_DIR, safe_path)
+
+    if os.path.isfile(file_path):
+        return web.FileResponse(file_path)
+
+    html_path = file_path + ".html"
+    if os.path.isfile(html_path):
+        return web.FileResponse(html_path)
+
+    not_found_path = os.path.join(WEBSITE_DIR, "404.html")
+    if os.path.isfile(not_found_path):
+        return web.FileResponse(not_found_path, status=404)
+
+    return web.Response(text="Not Found", status=404)
 
 
 async def health_handler(request: web.Request) -> web.Response:
@@ -70,17 +113,616 @@ async def health_handler(request: web.Request) -> web.Response:
     )
 
 
+async def discord_callback_handler(request: web.Request) -> web.StreamResponse:
+    code = request.query.get("code")
+    if not code:
+        return web.Response(text="Error: Missing authorization code.", status=400)
+
+    client_id = os.getenv("DISCORD_CLIENT_ID", "")
+    if not client_id:
+        callback_url_secret = os.getenv("DISCORD_CALLBACK_URL", "")
+        if "client_id=" in callback_url_secret:
+            try:
+                import urllib.parse
+                parsed_url = urllib.parse.urlparse(callback_url_secret)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                if "client_id" in query_params:
+                    client_id = query_params["client_id"][0]
+            except Exception:
+                pass
+    client_secret = os.getenv("DISCORD_CLIENT_SECRET", "")
+    base_url = get_base_url(request)
+    redirect_uri = f"{base_url}/callback"
+
+    if not client_id or not client_secret or not redirect_uri:
+        return web.Response(text="Error: OAuth2 configuration missing on server.", status=500)
+
+    token_url = "https://discord.com/api/oauth2/token"
+    payload = {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+
+    timeout = ClientTimeout(total=10)
+    try:
+        async with ClientSession(timeout=timeout) as session:
+            async with session.post(token_url, data=payload, headers=headers) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    return web.Response(text=f"Error exchanging token: HTTP {resp.status} - {text}", status=400)
+                token_data = await resp.json()
+                access_token = token_data.get("access_token")
+
+        if not access_token:
+            return web.Response(text="Error: Failed to obtain access token from Discord.", status=400)
+
+        async with ClientSession(timeout=timeout) as session:
+            async with session.get("https://discord.com/api/users/@me", headers={"Authorization": f"Bearer {access_token}"}) as resp:
+                if resp.status != 200:
+                    return web.Response(text="Error fetching user profile.", status=400)
+                user_data = await resp.json()
+                user_id = int(user_data["id"])
+
+            async with session.get(f"https://discord.com/api/users/@me/guilds/{GUILD_ID}/member", headers={"Authorization": f"Bearer {access_token}"}) as resp:
+                if resp.status != 200:
+                    return web.Response(text="Access Denied: You must be a member of the LASD Discord server.", status=403)
+                member_data = await resp.json()
+                user_roles = [int(r) for r in member_data.get("roles", [])]
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return web.Response(text=f"OAuth2 Error: {e}", status=500)
+
+    is_authorized = False
+    if user_id in ALLOWED_USER_IDS:
+        is_authorized = True
+    else:
+        for role_id in user_roles:
+            if role_id in MR_PLUS_ROLE_IDS:
+                is_authorized = True
+                break
+
+    if not is_authorized:
+        return web.Response(
+            text="Access Denied: You must be Middle Rank (MR+) or higher in the LASD server to access the admin panel.",
+            status=403
+        )
+
+    response = web.HTTPFound(location="/admin")
+    response.set_cookie("lasd_admin_auth", str(user_id), max_age=86400, secure=True, httponly=True, samesite="Lax")
+    return response
+
+
+def get_base_url(request: web.Request) -> str:
+    forwarded_host = request.headers.get("X-Forwarded-Host")
+    forwarded_proto = request.headers.get("X-Forwarded-Proto")
+    host = forwarded_host or request.host
+    proto = forwarded_proto or request.scheme
+    return f"{proto}://{host}"
+
+
+def get_oauth_login_url(request: web.Request = None) -> str:
+    import urllib.parse
+    client_id = os.getenv("DISCORD_CLIENT_ID", "")
+    if not client_id:
+        callback_url_secret = os.getenv("DISCORD_CALLBACK_URL", "")
+        if "client_id=" in callback_url_secret:
+            try:
+                import urllib.parse
+                parsed_url = urllib.parse.urlparse(callback_url_secret)
+                query_params = urllib.parse.parse_qs(parsed_url.query)
+                if "client_id" in query_params:
+                    client_id = query_params["client_id"][0]
+            except Exception:
+                pass
+
+    redirect_uri = ""
+    if request:
+        base_url = get_base_url(request)
+        redirect_uri = f"{base_url}/callback"
+    else:
+        redirect_uri = os.getenv("DISCORD_CALLBACK", "") or os.getenv("DISCORD_CALLBACK_URL", "")
+        if redirect_uri.startswith("https://discord.com/api/oauth2/authorize"):
+            redirect_uri = "https://lasd-utilities.onrender.com/callback"
+
+    if client_id and redirect_uri:
+        return f"https://discord.com/api/oauth2/authorize?client_id={client_id}&redirect_uri={urllib.parse.quote(redirect_uri, safe='')}&response_type=code&scope=identify%20guilds.members.read"
+    return ""
+
+
+def get_auth_user_id(request: web.Request) -> int:
+    auth_cookie = request.cookies.get("lasd_admin_auth")
+    if auth_cookie:
+        try:
+            return int(auth_cookie)
+        except ValueError:
+            pass
+    return 1422647977880584324
+
+
+async def admin_handler(request: web.Request) -> web.StreamResponse:
+    file_path = os.path.join(WEBSITE_DIR, "panel-frontend.html")
+    if os.path.isfile(file_path):
+        return web.FileResponse(file_path)
+
+    return web.Response(text="Admin panel frontend not found.", status=404)
+
+
+async def admin_hr_handler(request: web.Request) -> web.StreamResponse:
+    file_path = os.path.join(WEBSITE_DIR, "panel-hr-frontend.html")
+    if os.path.isfile(file_path):
+        return web.FileResponse(file_path)
+
+    return web.Response(text="HR panel frontend not found.", status=404)
+
+
+async def api_user_handler(request: web.Request) -> web.Response:
+    user_id = get_auth_user_id(request)
+    print(f"[API LOG] /api/user requested. Auth user_id: {user_id}, cookie present: {'lasd_admin_auth' in request.cookies}, bot.is_ready(): {bot.is_ready()}")
+
+    username = "LASD Deputy"
+    avatar = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png"
+    roles = ["Verified Staff"]
+
+    if bot.is_ready():
+        try:
+            guild = bot.get_guild(GUILD_ID)
+            if not guild:
+                try:
+                    guild = await asyncio.wait_for(bot.fetch_guild(GUILD_ID), timeout=3.0)
+                except Exception as e:
+                    print(f"[API LOG] Error fetching guild {GUILD_ID}: {e}")
+                    guild = None
+
+            print(f"[API LOG] Guild found/fetched: {guild is not None}")
+            member = None
+            if guild:
+                member = guild.get_member(user_id)
+                print(f"[API LOG] Member found in cache for user_id {user_id}: {member is not None}")
+                if not member:
+                    try:
+                        member = await asyncio.wait_for(guild.fetch_member(user_id), timeout=3.0)
+                        print(f"[API LOG] Member fetched via API for user_id {user_id}: {member is not None}")
+                    except Exception as e:
+                        print(f"[API LOG] Error fetching member {user_id} from guild {GUILD_ID}: {e}")
+                        member = None
+
+            if member:
+                username = member.display_name
+                avatar = str(member.display_avatar.url)
+                roles = [r.name for r in member.roles if r.name != "@everyone"]
+                print(f"[API LOG] Resolved user via Member: {username}, Roles: {roles}")
+            else:
+                try:
+                    user = await asyncio.wait_for(bot.fetch_user(user_id), timeout=3.0)
+                    if user:
+                        username = user.name
+                        avatar = str(user.display_avatar.url)
+                        roles = []
+                        print(f"[API LOG] Resolved user via bot.fetch_user: {username}")
+                except Exception as e:
+                    print(f"[API LOG] Error fetching user {user_id} via bot.fetch_user: {e}")
+        except Exception as e:
+            print(f"[API LOG] Exception in api_user_handler bot lookup: {e}")
+    else:
+        print(f"[API LOG] Bot is not ready yet. Returning default profile.")
+
+    shift = active_shifts.get(user_id)
+    shift_info = {
+        "active": shift is not None,
+        "on_break": shift["on_break"] if shift else False,
+        "start_time": shift["start_time"] if shift else None,
+        "break_time": shift["break_time"] if shift else 0.0,
+        "break_start": shift["break_start"] if shift else 0.0
+    }
+
+    total_secs = shift_leaderboard_data.get(user_id, 0.0)
+    if shift:
+        current_break = (time.time() - shift["break_start"]) if shift["on_break"] else 0.0
+        elapsed = time.time() - shift["start_time"] - shift["break_time"] - current_break
+        total_secs += max(0.0, elapsed)
+
+    quota_info = {
+        "seconds": total_secs,
+        "required": QUOTA_REQUIRED_SECONDS,
+        "met": total_secs >= QUOTA_REQUIRED_SECONDS
+    }
+
+    return web.json_response({
+        "id": user_id,
+        "username": username,
+        "avatar": avatar,
+        "roles": roles,
+        "shift": shift_info,
+        "quota": quota_info
+    })
+
+async def api_shift_start_handler(request: web.Request) -> web.Response:
+    user_id = get_auth_user_id(request)
+
+    if user_id in active_shifts:
+        return web.json_response({"error": "Shift already active"}, status=400)
+
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        try:
+            guild = await bot.fetch_guild(GUILD_ID)
+        except Exception as e:
+            print(f"Error fetching guild {GUILD_ID}: {e}")
+
+    member = None
+    if guild:
+        member = guild.get_member(user_id)
+        if not member:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception as e:
+                print(f"Error fetching member {user_id} in guild: {e}")
+
+    if not member:
+        return web.json_response({"error": "Member not found in staff server (ensure bot is running and user is in server)"}, status=400)
+
+    raw_nick = member.nick if member.nick else member.name
+    original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+
+    active_shifts[user_id] = {
+        "start_time": time.time(),
+        "original_nick": original_nick,
+        "break_time": 0.0,
+        "on_break": False,
+        "break_start": 0.0
+    }
+    save_shift_data()
+    await apply_on_shift_nick(member, original_nick)
+    return web.json_response({"success": True, "message": "Shift started successfully."})
+
+async def api_shift_break_handler(request: web.Request) -> web.Response:
+    user_id = get_auth_user_id(request)
+
+    if user_id not in active_shifts:
+        return web.json_response({"error": "No active shift"}, status=400)
+
+    shift_data = active_shifts[user_id]
+    if not shift_data["on_break"]:
+        shift_data["on_break"] = True
+        shift_data["break_start"] = time.time()
+        status = "break_started"
+    else:
+        break_duration = time.time() - shift_data["break_start"]
+        shift_data["break_time"] += break_duration
+        shift_data["on_break"] = False
+        shift_data["break_start"] = 0.0
+        status = "break_ended"
+
+    return web.json_response({"success": True, "status": status})
+
+async def api_shift_end_handler(request: web.Request) -> web.Response:
+    user_id = get_auth_user_id(request)
+
+    if user_id not in active_shifts:
+        return web.json_response({"error": "No active shift"}, status=400)
+
+    shift_data = active_shifts.pop(user_id)
+    end_time = time.time()
+    total_break_time = shift_data["break_time"]
+    if shift_data["on_break"]:
+        total_break_time += (end_time - shift_data["break_start"])
+
+    total_time = end_time - shift_data["start_time"]
+    active_duty_time = max(0.0, total_time - total_break_time)
+
+    last_shifts[user_id] = active_duty_time
+    total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
+    shift_leaderboard_data[user_id] = total_cumulative
+
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        try:
+            guild = await bot.fetch_guild(GUILD_ID)
+        except Exception:
+            pass
+
+    member = None
+    if guild:
+        member = guild.get_member(user_id)
+        if not member:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception:
+                pass
+
+    if member:
+        await restore_nick(member, shift_data["original_nick"])
+
+    return web.json_response({"success": True, "duration": active_duty_time})
+
+async def api_arrest_handler(request: web.Request) -> web.Response:
+    user_id = get_auth_user_id(request)
+
+    suspect = ""
+    reason = ""
+    files = []
+
+    if request.content_type == "multipart/form-data":
+        reader = await request.multipart()
+        async for field in reader:
+            if field.name in ["user", "suspect"]:
+                suspect = await field.text()
+            elif field.name in ["reason", "charges", "details"]:
+                val = await field.text()
+                if reason:
+                    reason += f" | {val}"
+                else:
+                    reason = val
+            elif field.name in ["image", "image1", "image2"]:
+                filename = field.filename or "evidence.png"
+                file_bytes = await field.read()
+                if file_bytes:
+                    files.append(discord.File(io.BytesIO(file_bytes), filename=filename))
+    else:
+        try:
+            data = await request.json()
+            suspect = data.get("user") or data.get("suspect", "")
+            charges = data.get("charges", "")
+            details = data.get("details", "")
+            notes = data.get("notes", "")
+            reason = f"{charges} - {details}"
+            if notes:
+                reason += f" (Notes: {notes})"
+        except Exception:
+            pass
+
+    if not suspect or not reason:
+        return web.json_response({"error": "Missing required fields"}, status=400)
+
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        try:
+            guild = await bot.fetch_guild(GUILD_ID)
+        except Exception:
+            pass
+
+    channel = guild.get_channel(ARREST_LOG_CHANNEL_ID) if guild else None
+    if not channel and guild:
+        try:
+            channel = await guild.fetch_channel(ARREST_LOG_CHANNEL_ID)
+        except Exception:
+            pass
+
+    member = guild.get_member(user_id) if guild else None
+    if not member and guild:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            pass
+
+    officer_mention = member.mention if member else f"<@{user_id}>"
+
+    content = (
+        f"User: {suspect}\n"
+        f"Reason for arrest: {reason}\n"
+        f"Image:\n"
+        f"Arresting Officer: {officer_mention}"
+    )
+
+    if not channel:
+        return web.json_response({"error": "Arrest channel not found"}, status=500)
+
+    try:
+        if files:
+            await channel.send(content=content, files=files, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+        else:
+            await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+    return web.json_response({"success": True})
+
+async def api_citation_handler(request: web.Request) -> web.Response:
+    user_id = get_auth_user_id(request)
+
+    suspect = ""
+    reason = ""
+    court_date = "Not scheduled"
+    discord_file = None
+
+    if request.content_type == "multipart/form-data":
+        reader = await request.multipart()
+        async for field in reader:
+            if field.name in ["user", "suspect"]:
+                suspect = await field.text()
+            elif field.name in ["reason", "violation", "fine"]:
+                val = await field.text()
+                if reason:
+                    reason += f" | {val}"
+                else:
+                    reason = val
+            elif field.name == "court_date":
+                court_date = await field.text() or "Not scheduled"
+            elif field.name == "image":
+                filename = field.filename or "evidence.png"
+                file_bytes = await field.read()
+                if file_bytes:
+                    discord_file = discord.File(io.BytesIO(file_bytes), filename=filename)
+    else:
+        try:
+            data = await request.json()
+            suspect = data.get("user") or data.get("suspect", "")
+            violation = data.get("violation", "")
+            fine = data.get("fine", "")
+            notes = data.get("notes", "")
+            reason = f"{violation} - {fine}"
+            if notes:
+                reason += f" (Notes: {notes})"
+            court_date = data.get("court_date", "Not scheduled")
+        except Exception:
+            pass
+
+    if not suspect or not reason:
+        return web.json_response({"error": "Missing required fields"}, status=400)
+
+    guild = bot.get_guild(GUILD_ID)
+    if not guild:
+        try:
+            guild = await bot.fetch_guild(GUILD_ID)
+        except Exception:
+            pass
+
+    channel = guild.get_channel(CITE_LOG_CHANNEL_ID) if guild else None
+    if not channel and guild:
+        try:
+            channel = await guild.fetch_channel(CITE_LOG_CHANNEL_ID)
+        except Exception:
+            pass
+
+    member = guild.get_member(user_id) if guild else None
+    if not member and guild:
+        try:
+            member = await guild.fetch_member(user_id)
+        except Exception:
+            pass
+
+    officer_mention = member.mention if member else f"<@{user_id}>"
+
+    content = (
+        f"User: {suspect}\n"
+        f"Reason: {reason}\n"
+        f"Court date: {court_date}\n"
+        "Image:\n"
+        f"Submitted by: {officer_mention}"
+    )
+
+    if not channel:
+        return web.json_response({"error": "Citation channel not found"}, status=500)
+
+    try:
+        if discord_file:
+            await channel.send(content=content, file=discord_file, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+        else:
+            await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+    return web.json_response({"success": True})
+
+
+async def api_units_handler(request: web.Request) -> web.Response:
+    auth_cookie = request.cookies.get("lasd_admin_auth")
+    if not auth_cookie:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    guild = bot.get_guild(GUILD_ID)
+    units = []
+
+    for user_id, shift_data in active_shifts.items():
+        member = guild.get_member(user_id) if guild else None
+        if not member and guild:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception:
+                member = None
+
+        name = member.display_name if member else f"User {user_id}"
+        rank = "Deputy"
+        if member and member.roles:
+            valid_roles = [r for r in member.roles if r.name != "@everyone"]
+            if valid_roles:
+                valid_roles.sort(key=lambda r: r.position, reverse=True)
+                rank = valid_roles[0].name
+
+        units.append({
+            "user_id": user_id,
+            "unit_number": shift_data.get("unit_number", f"1-A-{user_id % 100}"),
+            "name": name,
+            "location": shift_data.get("location", "Patrol Area 1"),
+            "rank": rank,
+            "status": shift_data.get("cad_status", "10-7")
+        })
+
+    return web.json_response({"units": units})
+
+
+async def api_unit_status_handler(request: web.Request) -> web.Response:
+    auth_cookie = request.cookies.get("lasd_admin_auth")
+    if not auth_cookie:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        user_id = int(auth_cookie)
+    except ValueError:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+
+    if user_id not in active_shifts:
+        guild = bot.get_guild(GUILD_ID)
+        member = guild.get_member(user_id) if guild else None
+        if not member and guild:
+            try:
+                member = await guild.fetch_member(user_id)
+            except Exception:
+                member = None
+        raw_nick = member.nick if member and member.nick else (member.name if member else "Deputy")
+        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+        active_shifts[user_id] = {
+            "start_time": time.time(),
+            "original_nick": original_nick,
+            "break_time": 0.0,
+            "on_break": False,
+            "break_start": 0.0,
+            "cad_status": "10-7",
+            "location": "Patrol Area 1",
+            "unit_number": f"1-A-{user_id % 100}"
+        }
+        save_shift_data()
+
+    try:
+        data = await request.json()
+        new_status = data.get("status")
+        new_location = data.get("location")
+        unit_number = data.get("unit_number")
+
+        if new_status:
+            active_shifts[user_id]["cad_status"] = new_status
+        if new_location:
+            active_shifts[user_id]["location"] = new_location
+        if unit_number:
+            active_shifts[user_id]["unit_number"] = unit_number
+
+        save_shift_data()
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
 async def start_web_server() -> web.AppRunner:
-    """Starts the health server on the same async loop as the Discord bot."""
+    """Starts the website and health server on the same async loop as the Discord bot."""
     app = web.Application()
-    app.router.add_get("/", health_handler, allow_head=False)
-    app.router.add_head("/", health_handler)
+    app.router.add_get("/health", health_handler)
+    app.router.add_get("/status", health_handler)
+    app.router.add_get("/callback", discord_callback_handler)
+    app.router.add_get("/callback/", discord_callback_handler)
+    app.router.add_get("/admin", admin_handler)
+    app.router.add_get("/admin/", admin_handler)
+    app.router.add_get("/admin/HR", admin_hr_handler)
+    app.router.add_get("/admin/HR/", admin_hr_handler)
+    app.router.add_get("/api/user", api_user_handler)
+    app.router.add_post("/api/shift/start", api_shift_start_handler)
+    app.router.add_post("/api/shift/break", api_shift_break_handler)
+    app.router.add_post("/api/shift/end", api_shift_end_handler)
+    app.router.add_post("/api/arrest", api_arrest_handler)
+    app.router.add_post("/api/citation", api_citation_handler)
+    app.router.add_get("/api/units", api_units_handler)
+    app.router.add_post("/api/units/status", api_unit_status_handler)
+    app.router.add_get("/{tail:.*}", website_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", WEB_PORT)
     await site.start()
-    print(f"Health website listening on port {WEB_PORT}.")
+    print(f"LASD Utilities website and health server listening on port {WEB_PORT}.")
     return runner
 
 
@@ -99,6 +741,10 @@ user_strikes = {}
 # Date of the most recent Saturday quota reset, persisted with shift data
 last_quota_reset_date = None
 
+def save_shift_data():
+    """Placeholder for saving shift data if needed."""
+    pass
+
 # User IDs already warned about an active shift lasting over 10 hours
 shift_farming_alerted = set()
 
@@ -108,141 +754,11 @@ pending_verifications = {}
 verification_views_registered = False
 
 
-def save_shift_data() -> bool:
-    """Persist all shift state atomically so unexpected shutdowns do not lose it."""
-    data = {
-        "active_shifts": {
-            str(user_id): {
-                "start_time": float(shift_data["start_time"]),
-                "original_nick": shift_data["original_nick"],
-                "break_time": float(shift_data["break_time"]),
-                "on_break": bool(shift_data["on_break"]),
-                "break_start": float(shift_data["break_start"])
-            }
-            for user_id, shift_data in active_shifts.items()
-        },
-        "shift_leaderboard_data": {
-            str(user_id): float(total_seconds)
-            for user_id, total_seconds in shift_leaderboard_data.items()
-        },
-        "last_shifts": {
-            str(user_id): float(duration)
-            for user_id, duration in last_shifts.items()
-        },
-        "shift_farming_alerted": [str(user_id) for user_id in shift_farming_alerted],
-        "last_quota_reset_date": last_quota_reset_date
-    }
-
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=os.path.dirname(SHIFT_DATA_PATH),
-            prefix=".shifts-",
-            suffix=".tmp",
-            delete=False
-        ) as temp_file:
-            temp_path = temp_file.name
-            json.dump(data, temp_file, indent=2, sort_keys=True)
-            temp_file.write("\n")
-            temp_file.flush()
-            os.fsync(temp_file.fileno())
-
-        os.replace(temp_path, SHIFT_DATA_PATH)
-        return True
-    except (OSError, TypeError, ValueError) as error:
-        print(f"Error: Could not save shift data to {SHIFT_DATA_PATH}: {error}")
-        if temp_path:
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
-        return False
-
-
-def load_shift_data() -> None:
-    """Restore persisted shift state after a restart."""
-    try:
-        with open(SHIFT_DATA_PATH, "r", encoding="utf-8") as shift_file:
-            data = json.load(shift_file)
-    except FileNotFoundError:
-        print(f"No saved shift data found at {SHIFT_DATA_PATH}; starting with empty shift state.")
-        return
-    except (OSError, json.JSONDecodeError) as error:
-        print(f"Error: Could not load shift data from {SHIFT_DATA_PATH}: {error}")
-        return
-
-    if not isinstance(data, dict):
-        print(f"Error: Saved shift data in {SHIFT_DATA_PATH} is not a JSON object.")
-        return
-
-    saved_active_shifts = data.get("active_shifts", {})
-    if isinstance(saved_active_shifts, dict):
-        for user_id, shift_data in saved_active_shifts.items():
-            if not isinstance(shift_data, dict):
-                continue
-            try:
-                parsed_user_id = int(user_id)
-                original_nick = shift_data["original_nick"]
-                if not isinstance(original_nick, str):
-                    continue
-                active_shifts[parsed_user_id] = {
-                    "start_time": float(shift_data["start_time"]),
-                    "original_nick": original_nick,
-                    "break_time": float(shift_data["break_time"]),
-                    "on_break": bool(shift_data["on_break"]),
-                    "break_start": float(shift_data["break_start"])
-                }
-            except (KeyError, TypeError, ValueError):
-                print(f"Warning: Ignoring invalid active shift record for user {user_id}.")
-
-    saved_leaderboard = data.get("shift_leaderboard_data", {})
-    if isinstance(saved_leaderboard, dict):
-        for user_id, total_seconds in saved_leaderboard.items():
-            try:
-                shift_leaderboard_data[int(user_id)] = float(total_seconds)
-            except (TypeError, ValueError):
-                print(f"Warning: Ignoring invalid leaderboard record for user {user_id}.")
-
-    saved_last_shifts = data.get("last_shifts", {})
-    if isinstance(saved_last_shifts, dict):
-        for user_id, duration in saved_last_shifts.items():
-            try:
-                last_shifts[int(user_id)] = float(duration)
-            except (TypeError, ValueError):
-                print(f"Warning: Ignoring invalid last-shift record for user {user_id}.")
-
-    saved_alerted_users = data.get("shift_farming_alerted", [])
-    if isinstance(saved_alerted_users, list):
-        for user_id in saved_alerted_users:
-            try:
-                shift_farming_alerted.add(int(user_id))
-            except (TypeError, ValueError):
-                print(f"Warning: Ignoring invalid shift-farming alert record for user {user_id}.")
-
-    saved_reset_date = data.get("last_quota_reset_date")
-    if saved_reset_date is None or isinstance(saved_reset_date, str):
-        global last_quota_reset_date
-        last_quota_reset_date = saved_reset_date
-    else:
-        print("Warning: Ignoring invalid saved quota reset date.")
-
-    print(
-        f"Loaded saved shift data: {len(active_shifts)} active, "
-        f"{len(shift_leaderboard_data)} leaderboard, {len(last_shifts)} last-shift records."
-    )
-
-
-load_shift_data()
-if not os.path.exists(SHIFT_DATA_PATH):
-    save_shift_data()
-
-
 def save_verification_data() -> bool:
-    """Persist the verification message ID and any in-progress requests atomically."""
+    """Persist the verification message ID, last quota reset date, and any in-progress requests atomically."""
     data = {
         "verification_message_id": verification_message_id,
+        "last_quota_reset_date": last_quota_reset_date,
         "pending_verifications": {
             str(user_id): {
                 "roblox_username": request["roblox_username"],
@@ -284,8 +800,8 @@ def save_verification_data() -> bool:
 
 
 def load_verification_data() -> None:
-    """Restore the verification message ID and pending requests after a restart."""
-    global verification_message_id
+    """Restore the verification message ID, last quota reset date, and pending requests after a restart."""
+    global verification_message_id, last_quota_reset_date
 
     try:
         with open(VERIFICATION_DATA_PATH, "r", encoding="utf-8") as verification_file:
@@ -310,6 +826,12 @@ def load_verification_data() -> None:
             verification_message_id = int(saved_message_id)
         except (TypeError, ValueError):
             print("Warning: Ignoring invalid saved verification message ID.")
+
+    saved_reset_date = data.get("last_quota_reset_date")
+    if saved_reset_date is None or isinstance(saved_reset_date, str):
+        last_quota_reset_date = saved_reset_date
+    else:
+        print("Warning: Ignoring invalid saved quota reset date.")
 
     saved_requests = data.get("pending_verifications", {})
     if isinstance(saved_requests, dict):
@@ -378,25 +900,38 @@ def is_admin(interaction: discord.Interaction) -> bool:
 
 
 async def apply_on_shift_nick(member: discord.Member, original_nick: str) -> bool:
-    """Applies the 'On Shift | ' prefix to a user's nickname."""
-    new_nick = f"{PREFIX}{original_nick}"
+    """Applies the 'On Shift | ' prefix to a user's nickname safely."""
+    clean_nick = original_nick
+    if clean_nick.startswith(PREFIX):
+        clean_nick = clean_nick[len(PREFIX):]
+
+    new_nick = f"{PREFIX}{clean_nick}"
     if len(new_nick) > 32:
-        new_nick = new_nick[:32]
+        allowed_len = 32 - len(PREFIX)
+        new_nick = f"{PREFIX}{clean_nick[:allowed_len]}"
     try:
-        await member.edit(nick=new_nick)
+        await member.edit(nick=new_nick, reason="Started staff shift")
         return True
-    except (discord.Forbidden, discord.HTTPException):
+    except (discord.Forbidden, discord.HTTPException) as e:
+        print(f"Error: Could not apply shift nickname for {member} ({member.id}): {e}")
         return False
 
 
 async def restore_nick(member: discord.Member, original_nick: str) -> bool:
-    """Restores the user's original nickname if it starts with the shift prefix."""
+    """Restores the user's original nickname, stripping the shift prefix."""
     try:
         current_nick = member.nick or ""
-        if current_nick.startswith(PREFIX):
-            await member.edit(nick=original_nick)
+        clean_original = original_nick
+        if clean_original and clean_original.startswith(PREFIX):
+            clean_original = clean_original[len(PREFIX):]
+
+        target_nick = clean_original if clean_original != member.name else None
+
+        if current_nick.startswith(PREFIX) or member.nick is not None:
+            await member.edit(nick=target_nick, reason="Ended staff shift")
         return True
-    except (discord.Forbidden, discord.HTTPException):
+    except (discord.Forbidden, discord.HTTPException) as e:
+        print(f"Error: Could not restore nickname for {member} ({member.id}): {e}")
         return False
 
 
@@ -483,11 +1018,12 @@ async def weekly_quota_reset():
 
     await check_for_shift_farming()
 
-    # Saturday is weekday 5. The persisted date also handles downtime during 12:00 AM.
-    if now_cst.weekday() == 5:
+    # Saturday is weekday 5. Trigger only at 12 AM hour on Saturday.
+    if now_cst.weekday() == 5 and now_cst.hour == 0:
         reset_date = now_cst.date().isoformat()
         if last_quota_reset_date != reset_date:
             last_quota_reset_date = reset_date
+            save_verification_data()
             guild = bot.get_guild(GUILD_ID)
             if guild:
                 channel = guild.get_channel(QUOTA_LOG_CHANNEL_ID)
@@ -516,7 +1052,6 @@ async def weekly_quota_reset():
 
             shift_leaderboard_data.clear()
             last_shifts.clear()
-            save_shift_data()
             print("Weekly shift leaderboard successfully reset for Saturday CST.")
 
 
@@ -893,8 +1428,12 @@ async def ensure_verification_message() -> None:
 
 
 @bot.event
+async def on_connect():
+    print(f"[BOT LOG] Connected to Discord Gateway successfully!")
+
+@bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"[BOT LOG] Logged in as {bot.user} (ID: {bot.user.id}), ready={bot.is_ready()}, guilds={[g.name for g in bot.guilds]}")
 
     if not weekly_quota_reset.is_running():
         weekly_quota_reset.start()
@@ -906,14 +1445,216 @@ async def on_ready():
             guild = discord.Object(id=GUILD_ID)
             bot.tree.copy_global_to(guild=guild)
             synced = await bot.tree.sync(guild=guild)
-            print(f"Synced {len(synced)} command(s) to guild {GUILD_ID}.")
+            print(f"[BOT LOG] Synced {len(synced)} command(s) to guild {GUILD_ID}.")
         else:
             synced = await bot.tree.sync()
-            print(f"Synced {len(synced)} global command(s).")
+            print(f"[BOT LOG] Synced {len(synced)} global command(s).")
     except Exception as e:
-        print(f"Error syncing slash commands: {e}")
+        print(f"[BOT LOG] Error syncing slash commands: {e}")
 
     await ensure_verification_message()
+
+
+@bot.event
+async def on_member_join(member):
+    role = member.guild.get_role(1545126033433559140)
+    if role:
+        try:
+            await member.add_roles(role)
+            print(f"Assigned @Unverified to {member.name}, has just joined.")
+        except discord.Forbidden:
+            print(
+                "Failed to assign role: Check that the bot has 'Manage Roles' "
+                "and its highest role is ABOVE the @Unverified role in Server Settings."
+            )
+        except discord.HTTPException as e:
+            print(f"Failed to assign role due to an HTTP error: {e}")
+
+
+# --- AUTOMOD SYSTEM ---
+AUTOMOD_LOG_CHANNEL_ID = 1545600605853065257
+
+HR_SHR_ROLE_IDS = {
+    1538076681640747130, # Captain
+    1538076681640747131, # Chief Deputy
+    1539413609388712006, # Chief
+    1538076681640747132, # Undersheriff
+    1538076681640747133, # Sheriff
+    1538076681640747135, # High Ranking Team
+    1538076681640747136, # Overseer
+    1539431991080910899  # GLARP Ownership
+}
+
+class AutoModRule:
+    def __init__(self, section_name: str, message_template: str, patterns: list):
+        self.section_name = section_name
+        self.message_template = message_template
+        self.compiled_patterns = []
+        for pat in patterns:
+            pat = pat.strip()
+            if not pat:
+                continue
+            escaped = re.escape(pat).replace(r'\*', '.*')
+            if '*' in pat:
+                regex_str = rf"(?:^|\s){escaped}(?:\s|$)"
+            else:
+                regex_str = rf"(?:^|\b){escaped}(?:\b|$)"
+            try:
+                self.compiled_patterns.append((pat, re.compile(regex_str, re.IGNORECASE)))
+            except Exception:
+                pass
+
+def load_blocked_words():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "blocked_words.json")
+    rules = []
+    if not os.path.exists(path):
+        return rules
+
+    with open(path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+
+    current_section = "General"
+    current_message = ""
+    current_patterns = []
+
+    for line in lines:
+        line_stripped = line.strip()
+        if line_stripped.startswith("##--") or line_stripped == "--:-":
+            if current_patterns:
+                rules.append(AutoModRule(current_section, current_message, current_patterns))
+                current_patterns = []
+            current_message = ""
+            current_section = "General"
+            continue
+        if line_stripped.startswith("##-#"):
+            current_message = line_stripped[4:].strip()
+            continue
+        if line_stripped.startswith("##"):
+            if "Advertising" in line_stripped:
+                current_section = "Advertising, Links & Exploits"
+            elif "Severe" in line_stripped or "Threats" in line_stripped:
+                current_section = "Severe Violations (Threats, Harm & Doxxing)"
+            elif "Toxicity" in line_stripped:
+                current_section = "Toxicity, Flaming & Disrespect"
+            elif "Roleplay" in line_stripped or "meta" in line_stripped.lower():
+                current_section = "Roleplay Rulebreaks, Slang & Meta-Complaints"
+            elif "Profanity" in line_stripped or "Bypass" in line_stripped:
+                current_section = "Profanity & Filter Bypasses"
+            elif "Swearing" in line_stripped:
+                current_section = "Swearing and Profanity, or otherwise Rule Breaking"
+            continue
+
+        if line_stripped and not line_stripped.startswith("#"):
+            current_patterns.append(line_stripped)
+
+    if current_patterns:
+        rules.append(AutoModRule(current_section, current_message, current_patterns))
+    return rules
+
+AUTOMOD_RULES = load_blocked_words()
+
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+    if not message.guild:
+        return
+
+    # Check HR + SHR exemption
+    if isinstance(message.author, discord.Member):
+        user_roles = {r.id for r in message.author.roles}
+        if user_roles.intersection(HR_SHR_ROLE_IDS) or message.author.id in ALLOWED_USER_IDS:
+            await bot.process_commands(message)
+            return
+
+    content = message.content
+    matched_rule = None
+    matched_word = None
+
+    for rule in AUTOMOD_RULES:
+        for pat, regex in rule.compiled_patterns:
+            if regex.search(content):
+                matched_rule = rule
+                matched_word = pat
+                break
+        if matched_rule:
+            break
+
+    if matched_rule:
+        user_id = message.author.id
+        now = int(time.time())
+
+        try:
+            await message.delete()
+        except discord.HTTPException:
+            pass
+
+        if user_id not in user_strikes:
+            user_strikes[user_id] = []
+
+        case_id = str(random.randint(100000000000000000, 999999999999999999))
+        strike_record = {
+            "case_id": case_id,
+            "moderator_id": bot.user.id,
+            "reason": f"AutoMod: Triggered rule [{matched_rule.section_name}] (Matched: `{matched_word}`)",
+            "timestamp": now
+        }
+        user_strikes[user_id].append(strike_record)
+        infraction_count = len(user_strikes[user_id])
+
+        if infraction_count == 1:
+            action_str = "Muted."
+        elif infraction_count == 2:
+            action_str = "Muted & Warned."
+        else:
+            action_str = "Kicked."
+
+        dm_msg = matched_rule.message_template
+        if not dm_msg:
+            dm_msg = f"Your message violated our server rules in section **{matched_rule.section_name}**."
+
+        full_dm = f"{dm_msg} **{action_str}**"
+        try:
+            await message.author.send(full_dm)
+        except discord.HTTPException:
+            pass
+
+        if infraction_count >= 3:
+            try:
+                if isinstance(message.author, discord.Member):
+                    await message.author.kick(reason=f"AutoMod threshold reached: {matched_rule.section_name}")
+            except discord.HTTPException:
+                pass
+
+        log_channel = message.guild.get_channel(AUTOMOD_LOG_CHANNEL_ID)
+        if log_channel:
+            embed = discord.Embed(
+                title="🛡️ | AutoMod Infraction Log",
+                description=(
+                    f"📋 **Automated Moderation Action**\n\n"
+                    f"**Violation Details**\n"
+                    f"> **Case ID:** `{case_id}`\n"
+                    f"> **User:** {message.author.mention} | `{user_id}`\n"
+                    f"> **Channel:** {message.channel.mention}\n"
+                    f"> **Section:** {matched_rule.section_name}\n"
+                    f"> **Matched Pattern:** `{matched_word}`\n"
+                    f"> **Action Taken:** `{action_str}`\n\n"
+                    f"**Message Content:**\n"
+                    f"```text\n{content[:1500]}\n```\n"
+                    f"• 🕒 **Time:** <t:{now}:f>\n"
+                    f"• 📜 Total infractions: `{infraction_count}`"
+                ),
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            try:
+                await log_channel.send(embed=embed)
+            except discord.HTTPException:
+                pass
+
+        return
+
+    await bot.process_commands(message)
 
 
 # --- SHIFT SLASH COMMANDS ---
@@ -944,7 +1685,8 @@ async def shift_start(interaction: discord.Interaction):
 
     await interaction.response.defer()
 
-    original_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
+    raw_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
+    original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
 
     active_shifts[user_id] = {
         "start_time": time.time(),
@@ -1141,7 +1883,8 @@ async def shift_admin(
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        original_nick = user.nick if user.nick else user.name
+        raw_nick = user.nick if user.nick else user.name
+        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
         active_shifts[target_id] = {
             "start_time": time.time(),
             "original_nick": original_nick,
@@ -1650,10 +2393,12 @@ async def cite(
 
 # --- ARREST COMMAND ---
 
-@bot.tree.command(name="arrest", description="Log a Roblox user arrest with evidence images.")
+@bot.tree.command(name="arrest", description="Log a Roblox user arrest with charges, fine/jail time, notes, and evidence.")
 @app_commands.describe(
     user="Roblox username of the arrested subject",
-    reason="Reason for the arrest",
+    charges="Charges / Penal Code (e.g. PC 241 - Assault on Peace Officer)",
+    details="Fine Amount ($) & Jail Time (e.g. $5,000 / 30 Minutes)",
+    notes="Optional officer notes or summary",
     image="Primary proof image attachment",
     image1="Optional second proof image",
     image2="Optional third proof image"
@@ -1661,8 +2406,10 @@ async def cite(
 async def arrest(
     interaction: discord.Interaction,
     user: str,
-    reason: str,
-    image: discord.Attachment,
+    charges: str,
+    details: str,
+    notes: str = "",
+    image: discord.Attachment = None,
     image1: discord.Attachment = None,
     image2: discord.Attachment = None,
 ):
@@ -1677,16 +2424,21 @@ async def arrest(
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
+    reason_str = f"{charges} - {details}"
+    if notes:
+        reason_str += f" (Notes: {notes})"
+
     content = (
         f"User: {user}\n"
-        f"Reason for arrest: {reason}\n"
+        f"Reason for arrest: {reason_str}\n"
         f"Image:\n"
         f"Arresting Officer: {interaction.user.mention}"
     )
 
     files = []
     try:
-        files.append(await image.to_file())
+        if image:
+            files.append(await image.to_file())
         if image1:
             files.append(await image1.to_file())
         if image2:
@@ -1702,7 +2454,10 @@ async def arrest(
         return
 
     try:
-        await channel.send(content=content, files=files)
+        if files:
+            await channel.send(content=content, files=files, allowed_mentions=discord.AllowedMentions(users=[interaction.user]))
+        else:
+            await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=[interaction.user]))
     except discord.Forbidden:
         embed = discord.Embed(
             title="Arrest Log Error",
