@@ -369,9 +369,7 @@
 
       async function fetchUserData() {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500);
-        try {
-          const res = await fetch('/api/u4000);
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
         try {
           const res = await fetch('/api/user', { signal: controller.signal });
           clearTimeout(timeoutId);
@@ -388,7 +386,14 @@
         } catch (err) {
           clearTimeout(timeoutId);
           console.error("[FRONTEND LOG] Error fetching /api/user (using fallback):", err);
-          updateUI( Deputy";
+          updateUI();
+        }
+      }
+
+      function updateUI() {
+        if (!currentUser) return;
+        const userNameEl = document.getElementById('user-name');
+        if (userNameEl) userNameEl.textContent = currentUser.username || "LASD Deputy";
         const userAvatarEl = document.getElementById('user-avatar');
         if (userAvatarEl && currentUser.avatar) userAvatarEl.src = currentUser.avatar;
         const userRoleEl = document.getElementById('user-role-text');

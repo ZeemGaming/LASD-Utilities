@@ -245,6 +245,10 @@ def get_auth_user_id(request: web.Request) -> int:
     return 1422647977880584324
 
 
+def save_shift_data():
+    """Placeholder for saving shift data if needed."""
+    pass
+
 async def admin_handler(request: web.Request) -> web.StreamResponse:
     file_path = os.path.join(WEBSITE_DIR, "panel-frontend.html")
     if os.path.isfile(file_path):
@@ -740,10 +744,6 @@ user_strikes = {}
 
 # Date of the most recent Saturday quota reset, persisted with shift data
 last_quota_reset_date = None
-
-def save_shift_data():
-    """Placeholder for saving shift data if needed."""
-    pass
 
 # User IDs already warned about an active shift lasting over 10 hours
 shift_farming_alerted = set()
