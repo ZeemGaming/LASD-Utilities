@@ -356,6 +356,7 @@
 
     <!-- JavaScript Application Logic -->
     <script>
+      console.log("[FRONTEND LOG] Script started executing");
       let currentUser = {
         id: 1422647977880584324,
         username: "LASD Deputy",
@@ -666,7 +667,7 @@
         menu.classList.toggle('hidden');
       }
 
-      let window._panicPlaying = false;
+      let _panicPlaying = false;
 
       async function fetchCadUnits() {
         try {
@@ -688,14 +689,14 @@
             if (u.status === 'Panic') hasPanic = true;
           });
 
-          if (hasPanic && !window._panicPlaying) {
-            window._panicPlaying = true;
+          if (hasPanic && !_panicPlaying) {
+            _panicPlaying = true;
             try {
               const audio = new Audio('/panic-button.mp3');
               audio.play().catch(e => console.log("Audio play blocked:", e));
-              setTimeout(() => { window._panicPlaying = false; }, 10000);
+              setTimeout(() => { _panicPlaying = false; }, 10000);
             } catch (e) {
-              window._panicPlaying = false;
+              _panicPlaying = false;
             }
           }
 
@@ -808,6 +809,7 @@
       // Initial UI render with default user profile, then fetch live data and poll
       updateUI();
       fetchUserData();
+      console.log("[FRONTEND LOG] Initial data fetch called");
       setInterval(fetchUserData, 3000);
     </script>
   </body>
