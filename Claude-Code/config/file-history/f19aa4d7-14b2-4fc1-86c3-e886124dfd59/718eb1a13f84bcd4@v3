@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+  <head>
+    <title>LASD Command & Control Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              lasd: {
+                900: '#0b1329',
+                800: '#111c3a',
+                700: '#1e293b',
+                600: '#334155',
+                accent: '#3b82f6',
+                gold: '#eab308'
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      body { font-family: 'Inter', sans-serif; background-color: #090d16; color: #f8fafc; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: #090d16; }
+      ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    </style>
+  </head>
+  <body class="min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+    <!-- Top Navigation Bar -->
+    <header class="bg-[#111c3a]/90 backdrop-blur-md border-b border-slate-800 px-6 py-3.5 flex items-center justify-between z-50 sticky top-0">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center font-bold text-white shadow-lg shadow-blue-500/20">
+          🛡️
+        </div>
+        <div>
+          <h1 class="font-bold text-base tracking-wide text-white flex items-center space-x-2">
+            <span>LASD Command Center</span>
+            <span class="text-[10px] bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full font-semibold">LIVE BOT SYNC</span>
+          </h1>
+          <p class="text-xs text-slate-400">Los Angeles County Sheriff's Department • Utilities & Management</p>
+        </div>
+      </div>
+
+      <div class="flex items-center space-x-3">
+        <button onclick="switchTab('utilities')" id="tab-utilities" class="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-2">
+          <span>📊</span><span>Utilities Panel</span>
+        </button>
+        <button onclick="switchTab('cad')" id="tab-cad" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+          <span>🚨</span><span>CAD Dispatch</span>
+        </button>
+        <button onclick="switchTab('logs')" id="tab-logs" class="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+          <span>📋</span><span>Logs & BOLOs</span>
+        </button>
+        <a href="/admin/HR" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 shadow-sm">
+          <span>👥</span><span>HR Portal</span>
+        </a>
+        <a href="/" class="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2 shadow-sm">
+          <span>🏠</span><span>Home</span>
+        </a>
+      </div>
+    </header>
+
+    <!-- UTILITIES PANEL VIEW -->
+    <main id="view-utilities" class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 overflow-hidden">
+
+      <!-- COLUMN 1: Profile & Shift / Toolbox (Col Span 3) -->
+      <section class="lg:col-span-3 flex flex-col space-y-6">
+        <!-- User Profile Card -->
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-5 shadow-xl backdrop-blur-sm relative overflow-hidden">
+          <div class="flex items-center space-x-4 mb-4">
+            <img id="user-avatar" src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png" alt="Discord PFP" class="w-14 h-14 rounded-full object-cover border-2 border-blue-500/40 shadow-lg shadow-blue-500/10" />
+            <div>
+              <h2 id="user-name" class="font-bold text-base text-white truncate max-w-[160px]">LASD Deputy</h2>
+              <p id="user-role-text" class="text-xs text-blue-400 font-medium">Verified Staff</p>
+            </div>
+          </div>
+
+          <!-- Status Badge -->
+          <div class="mb-5 flex items-center justify-between bg-slate-900/80 border border-slate-800 rounded-xl px-3.5 py-2">
+            <div class="flex items-center space-x-2">
+              <span id="shift-dot" class="w-2.5 h-2.5 rounded-full bg-slate-500 animate-pulse"></span>
+              <span id="shift-status-label" class="text-xs font-bold uppercase tracking-wider text-slate-400">Offline</span>
+            </div>
+            <span id="shift-timer-display" class="text-xs font-mono font-bold text-slate-300">00:00:00</span>
+          </div>
+
+          <!-- Shift & Break Buttons -->
+          <div class="space-y-2.5">
+            <button onclick="toggleShift()" id="main-shift-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-2">
+              <span>🟢</span><span id="main-shift-text">Start Shift</span>
+            </button>
+            <button onclick="toggleBreak()" id="main-break-btn" disabled class="w-full bg-slate-800 text-slate-500 cursor-not-allowed py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2">
+              <span>☕</span><span id="main-break-text">Take Break</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbox Section -->
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-5 shadow-xl flex-1 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-bold text-sm text-white uppercase tracking-wider flex items-center space-x-2">
+                <span>🧰</span><span>Toolbox</span>
+              </h3>
+            </div>
+
+            <div class="space-y-2">
+              <button onclick="openLoaModal()" class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700/60 text-slate-200 py-2.5 px-4 rounded-xl text-xs font-semibold transition flex items-center space-x-3 shadow-sm">
+                <span>🏖️</span><span>Manage LOA</span>
+              </button>
+              <button onclick="switchLogMode('arrest')" class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700/60 text-slate-200 py-2.5 px-4 rounded-xl text-xs font-semibold transition flex items-center space-x-3 shadow-sm">
+                <span>🔒</span><span>Quick Arrest Log</span>
+              </button>
+              <button onclick="switchLogMode('citation')" class="w-full bg-slate-900 hover:bg-slate-800 border border-slate-700/60 text-slate-200 py-2.5 px-4 rounded-xl text-xs font-semibold transition flex items-center space-x-3 shadow-sm">
+                <span>📝</span><span>Quick Citation Log</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="mt-6 pt-4 border-t border-slate-800 text-[11px] text-slate-500 leading-relaxed">
+            <div class="font-semibold text-slate-400 mb-1">DISCORD BOT CONNECTED</div>
+            Changes on web sync instantly with Discord bot & server roles.
+          </div>
+        </div>
+      </section>
+
+      <!-- COLUMN 2: Create New Log (Col Span 5) -->
+      <section class="lg:col-span-5 bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-6 shadow-xl flex flex-col justify-between overflow-y-auto">
+        <div>
+          <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-800">
+            <div class="flex items-center space-x-3">
+              <span id="form-icon" class="text-xl">🔒</span>
+              <h2 id="form-title" class="font-bold text-lg text-white">Create New Arrest Log</h2>
+            </div>
+            <!-- Toggle Log Type -->
+            <div class="flex bg-slate-900 p-1 rounded-xl border border-slate-800">
+              <button onclick="switchLogMode('arrest')" id="tab-btn-arrest" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-blue-600 text-white">Arrest</button>
+              <button onclick="switchLogMode('citation')" id="tab-btn-citation" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Citation</button>
+            </div>
+          </div>
+
+          <!-- ARREST FORM -->
+          <form id="arrest-form" onsubmit="submitArrestForm(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Suspect Roblox Username <span class="text-red-500">*</span></label>
+              <input type="text" id="arrest-suspect" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="Enter Roblox username" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Charges / Penal Code <span class="text-red-500">*</span></label>
+              <input type="text" id="arrest-charges" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. PC 241 - Assault on Peace Officer" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Fine Amount ($) & Jail Time <span class="text-red-500">*</span></label>
+              <input type="text" id="arrest-details" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. $5,000 / 30 Minutes" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Evidence Image Attachment</label>
+              <input type="file" id="arrest-image" accept="image/*" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Officer Notes</label>
+              <textarea id="arrest-notes" rows="2" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600 resize-none" placeholder="Brief summary..."></textarea>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-3.5 rounded-xl font-semibold text-sm transition shadow-lg shadow-blue-600/20 flex items-center justify-center space-x-2">
+              <span>🚀</span><span>Submit Arrest Record to Discord</span>
+            </button>
+          </form>
+
+          <!-- CITATION FORM (Hidden by default) -->
+          <form id="citation-form" onsubmit="submitCitationForm(event)" class="space-y-4 hidden">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Civilian Roblox Username <span class="text-red-500">*</span></label>
+              <input type="text" id="cite-suspect" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="Enter civilian Roblox username" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Violation / Infraction <span class="text-red-500">*</span></label>
+              <input type="text" id="cite-violation" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. VC 22350 - Speeding" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Fine Amount ($) <span class="text-red-500">*</span></label>
+              <input type="text" id="cite-fine" required class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="e.g. $750" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Court Date</label>
+              <input type="text" id="cite-court" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-600" placeholder="Optional court date (e.g. Friday 8 PM EST)" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Evidence Image Attachment</label>
+              <input type="file" id="cite-image" accept="image/*" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-500" />
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3.5 rounded-xl font-semibold text-sm transition shadow-lg shadow-indigo-600/20 flex items-center justify-center space-x-2">
+              <span>📤</span><span>Submit Citation Record to Discord</span>
+            </button>
+          </form>
+        </div>
+
+        <div id="notification-banner" class="mt-4 p-3 rounded-xl bg-slate-900/80 border border-slate-800 text-xs text-slate-400 hidden">
+          Notification status...
+        </div>
+      </section>
+
+      <!-- COLUMN 3: Arrest/Citation Logs Feed (Col Span 4) -->
+      <section class="lg:col-span-4 bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-6 shadow-xl flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+          <h3 class="font-bold text-sm text-white uppercase tracking-wider flex items-center space-x-2">
+            <span>📋</span><span>Arrest/Citation Logs</span>
+          </h3>
+          <button onclick="refreshLogs()" class="text-slate-400 hover:text-white p-1 rounded-lg transition" title="Refresh">
+            🔄
+          </button>
+        </div>
+
+        <!-- Search Bar -->
+        <div class="relative mb-4">
+          <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-slate-500">🔍</span>
+          <input type="text" id="log-search" oninput="filterLogs()" class="w-full bg-slate-900 border border-slate-700/80 rounded-xl pl-10 pr-12 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 transition placeholder:text-slate-500" placeholder="Search by username..." />
+        </div>
+
+        <!-- Logs Feed Container -->
+        <div id="logs-container" class="flex-1 overflow-y-auto space-y-3 pr-1">
+          <div class="p-4 bg-slate-900/40 border border-slate-800 rounded-xl text-center text-xs text-slate-500">
+            No recent logs submitted in this session. Submit a log to broadcast to Discord.
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- CAD Dispatch System View (Hidden by default) -->
+    <div id="view-cad" class="flex-1 flex flex-col hidden overflow-hidden relative">
+      <!-- Active Units Header Bar -->
+      <div class="bg-[#111c3a]/90 border-b border-slate-800 px-6 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <span class="text-sm font-bold uppercase tracking-wider text-white flex items-center space-x-2">
+            <span>👥</span><span>ACTIVE UNITS</span>
+            <span id="cad-active-count" class="text-xs font-mono bg-red-600/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full">10-7: 0</span>
+          </span>
+        </div>
+        <div class="flex items-center space-x-3 text-xs text-slate-400">
+          <span>Live CAD Synchronized</span>
+        </div>
+      </div>
+      <div class="h-1 bg-gradient-to-r from-red-600 via-rose-500 to-transparent"></div>
+
+      <!-- Active Units Table Container -->
+      <div class="flex-1 p-6 overflow-y-auto">
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
+          <table class="w-full text-left border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50">
+                <th class="py-3 px-4">Unit Number</th>
+                <th class="py-3 px-4">Name</th>
+                <th class="py-3 px-4">Location</th>
+                <th class="py-3 px-4">Rank</th>
+                <th class="py-3 px-4">Status</th>
+              </tr>
+            </thead>
+            <tbody id="cad-units-tbody" class="divide-y divide-slate-800/60 text-xs text-slate-200">
+              <tr>
+                <td colspan="5" class="py-6 text-center text-slate-500">Loading active units...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Bottom CAD Toolbar / Dock (matching small-img-cad.png) -->
+      <div class="bg-[#111c3a]/95 border-t border-slate-800 px-6 py-3 flex items-center justify-between z-40">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-xl bg-red-600 flex items-center justify-center font-bold text-white shadow-lg shadow-red-600/30">
+            A
+          </div>
+          <!-- Dropdowns -->
+          <div class="relative">
+            <button onclick="toggleCadMenu('lookup-menu')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+              <span>Lookup</span><span>▾</span>
+            </button>
+            <div id="lookup-menu" class="absolute bottom-full left-0 mb-2 w-44 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden z-50">
+              <button onclick="performLookup('Civilian')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">👤 Civilian Lookup</button>
+              <button onclick="performLookup('Vehicle')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">🚗 Vehicle Lookup</button>
+              <button onclick="performLookup('Warrant')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">📜 Warrant Lookup</button>
+            </div>
+          </div>
+
+          <div class="relative">
+            <button onclick="toggleCadMenu('records-menu')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+              <span>Records</span><span>▾</span>
+            </button>
+            <div id="records-menu" class="absolute bottom-full left-0 mb-2 w-44 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden z-50">
+              <button onclick="switchTab('utilities'); toggleCadMenu('records-menu')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">🔒 Arrest Logs</button>
+              <button onclick="switchTab('utilities'); toggleCadMenu('records-menu')" class="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition">📝 Citation Logs</button>
+            </div>
+          </div>
+
+          <button onclick="alert('Active Call view')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+            <span>📋 My Call</span>
+          </button>
+
+          <button onclick="alert('Self Dispatch modal')" class="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2">
+            <span>🌐 Self Dispatch</span>
+          </button>
+
+          <button onclick="promptChangeCallsign()" class="bg-blue-600 hover:bg-blue-500 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-1.5">
+            <span>📻</span><span>Change Callsign</span>
+          </button>
+
+          <button onclick="promptChangeLocation()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-indigo-600/20 flex items-center space-x-1.5">
+            <span>📍</span><span>Change Location</span>
+          </button>
+        </div>
+
+        <!-- Right Side: Status Selector & Panic -->
+        <div class="flex items-center space-x-3 relative">
+          <div class="relative">
+            <button onclick="toggleCadMenu('status-popup')" id="cad-status-trigger" class="bg-red-600/20 border border-red-500/40 text-red-400 hover:bg-red-600/30 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+              <span id="cad-current-status-label">10-7</span>
+              <span>▾</span>
+            </button>
+
+        <div id="status-popup" class="absolute bottom-full right-0 mb-2 w-48 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl p-1.5 hidden z-50 space-y-1">
+              <button onclick="setCadStatus('10-7')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-red-500"></span><span>10-7 (Out of Service)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-6')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span><span>10-6 (Busy)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-8')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-teal-400"></span><span>10-8 (In Service)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-76')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span><span>10-76 (En Route)</span></span>
+              </button>
+              <button onclick="setCadStatus('10-97')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-medium text-slate-200 hover:bg-slate-800 transition flex items-center justify-between">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span><span>10-97 (At Scene)</span></span>
+              </button>
+              <div class="border-t border-slate-800 my-1"></div>
+              <button onclick="setCadStatus('Panic')" class="w-full text-left px-3 py-2 rounded-lg text-xs font-bold text-rose-400 hover:bg-rose-500/20 transition flex items-center space-x-2">
+                <span class="flex items-center space-x-2"><span class="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse"></span><span>⚠️ Panic (EMERGENCY)</span></span>
+              </button>
+            </div>
+          </div>
+
+          <button onclick="setCadStatus('Panic')" class="bg-rose-600 hover:bg-rose-500 text-white p-2.5 rounded-xl transition shadow-lg shadow-rose-600/30 flex items-center justify-center" title="Panic Button">
+            ⚡
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGS & BOLOS PANEL VIEW (Hidden by default) -->
+    <div id="view-logs" class="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 p-6 overflow-y-auto hidden">
+      <!-- COLUMN 1: New Log Section (Plate, BOLO, Citation/Warning, Notes) - ~65% -->
+      <section class="lg:col-span-8 flex flex-col space-y-6">
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-6 shadow-xl backdrop-blur-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <h2 class="text-sm font-bold tracking-wider uppercase text-white flex items-center space-x-2">
+              <span>📝</span><span>New Log & BOLO Management</span>
+            </h2>
+            <div class="flex items-center space-x-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-800 overflow-x-auto">
+              <button type="button" onclick="setLogFormType('bolo')" id="btn-form-bolo" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-red-600 text-white">Make BOLO</button>
+              <button type="button" onclick="setLogFormType('citation')" id="btn-form-citation" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Citation / Warning</button>
+              <button type="button" onclick="setLogFormType('note')" id="btn-form-note" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Vehicle Note</button>
+              <button type="button" onclick="setLogFormType('arrest')" id="btn-form-arrest" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white">Arrest Log</button>
+            </div>
+          </div>
+
+          <form id="new-log-form" onsubmit="submitNewLog(event)" class="space-y-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">License Plate *</label>
+                <input type="text" id="log-plate" required maxlength="10" placeholder="e.g. 7XYZ123" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono uppercase">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Vehicle Make / Model / Color</label>
+                <input type="text" id="log-vehicle" placeholder="e.g. Black Declasse Tahoma" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500">
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1">Subject / Owner Name</label>
+                <input type="text" id="log-subject" placeholder="e.g. John Doe" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500">
+              </div>
+              <div id="log-secondary-field-container">
+                <label id="log-secondary-label" class="block text-xs font-medium text-slate-400 mb-1">BOLO Priority / Reason</label>
+                <input type="text" id="log-secondary" placeholder="e.g. Felony / Armed and Dangerous" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1">Detailed Description / Violation / Notes *</label>
+              <textarea id="log-description" required rows="3" placeholder="Enter full details, charges, or warning notes..." class="w-full bg-slate-900 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-blue-500"></textarea>
+            </div>
+
+            <div class="flex items-center justify-between pt-2">
+              <span id="form-mode-indicator" class="text-xs text-red-400 font-bold">🔴 Active Mode: Creating BOLO</span>
+              <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl text-xs font-bold transition shadow-lg shadow-blue-600/30 flex items-center space-x-2">
+                <span>Submit & Broadcast</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Quick Plate Lookup / Search Box -->
+        <div class="bg-[#111c3a]/60 border border-slate-800/80 rounded-2xl p-5 shadow-xl backdrop-blur-sm">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3 flex items-center space-x-2">
+            <span>🔍</span><span>Plate & Vehicle Quick Lookup</span>
+          </h3>
+          <div class="flex space-x-3">
+            <input type="text" id="quick-plate-search" oninput="filterLogsFeed()" placeholder="Enter plate number to filter records..." class="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 font-mono uppercase">
+            <button type="button" onclick="filterLogsFeed()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-xs font-semibold transition">Search</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- COLUMN 2: Right Sidebar (~35% width - Vehicle Logs, Arrests, Citations & BOLOs) -->
+      <section class="lg:col-span-4 flex flex-col space-y-4">
+        <div class="bg-[#111c3a]/80 border border-slate-800 rounded-2xl p-5 shadow-xl backdrop-blur-sm flex flex-col h-[calc(100vh-140px)]">
+          <div class="flex items-center justify-between mb-3 pb-3 border-b border-slate-800">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-white flex items-center space-x-2">
+              <span>📋</span><span>Vehicle Logs & BOLOs</span>
+            </h3>
+            <span id="total-logs-count" class="text-xs font-mono bg-blue-600/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full">0 Records</span>
+          </div>
+
+          <!-- Feed Category Filters -->
+          <div class="grid grid-cols-4 gap-1 bg-slate-900 p-1 rounded-xl border border-slate-800 mb-3 text-center">
+            <button type="button" onclick="setLogFeedFilter('all')" id="filter-all" class="py-1 rounded-lg text-[10px] font-bold bg-blue-600 text-white transition">All</button>
+            <button type="button" onclick="setLogFeedFilter('bolo')" id="filter-bolo" class="py-1 rounded-lg text-[10px] font-semibold text-slate-400 hover:text-white transition">BOLOs</button>
+            <button type="button" onclick="setLogFeedFilter('vehicle')" id="filter-vehicle" class="py-1 rounded-lg text-[10px] font-semibold text-slate-400 hover:text-white transition">Vehicle</button>
+            <button type="button" onclick="setLogFeedFilter('cite')" id="filter-cite" class="py-1 rounded-lg text-[10px] font-semibold text-slate-400 hover:text-white transition">Cite/Arrest</button>
+          </div>
+
+          <!-- Scrollable Feed -->
+          <div id="logs-right-feed" class="flex-1 overflow-y-auto space-y-3 pr-1">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+      console.log("Script started executing");
+      let currentUser = {
+        id: 1422647977880584324,
+        username: "LASD Deputy",
+        avatar: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png",
+        roles: ["Verified Staff"],
+        shift: { active: false, on_break: false, start_time: null, break_time: 0.0, break_start: 0.0 },
+        quota: { seconds: 0.0, required: 7200, met: false }
+      };
+      let currentLogType = 'arrest';
+      let localSubmittedLogs = [];
+
+      async function fetchUserData() {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        try {
+          const res = await fetch('/api/user', { signal: controller.signal });
+          clearTimeout(timeoutId);
+          if (!res.ok) {
+            throw new Error(`Failed to fetch user: HTTP ${res.status}`);
+          }
+          const data = await res.json();
+          if (data && data.username) {
+            currentUser = data;
+            updateUI();
+          }
+        } catch (err) {
+          clearTimeout(timeoutId);
+          console.error("Error fetching /api/user (using fallback):", err);
+          updateUI();
+        }
+      }
+
+      function updateUI() {
+        if (!currentUser) return;
+        const userNameEl = document.getElementById('user-name');
+        if (userNameEl) userNameEl.textContent = currentUser.username || "LASD Deputy";
+        const userAvatarEl = document.getElementById('user-avatar');
+        if (userAvatarEl && currentUser.avatar) userAvatarEl.src = currentUser.avatar;
+        const userRoleEl = document.getElementById('user-role-text');
+        if (userRoleEl) userRoleEl.textContent = (currentUser.roles && currentUser.roles.length > 0) ? currentUser.roles[0] : 'Verified Staff';
+
+        const shift = currentUser.shift || { active: false, on_break: false };
+        const dot = document.getElementById('shift-dot');
+        const label = document.getElementById('shift-status-label');
+        const shiftBtn = document.getElementById('main-shift-btn');
+        const shiftText = document.getElementById('main-shift-text');
+        const breakBtn = document.getElementById('main-break-btn');
+        const breakText = document.getElementById('main-break-text');
+
+        if (!dot || !label || !shiftBtn || !shiftText || !breakBtn || !breakText) return;
+
+        if (shift.active) {
+          if (shift.on_break) {
+            dot.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping";
+            label.textContent = "On Break";
+            shiftBtn.className = "w-full bg-amber-600 hover:bg-amber-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-amber-600/20 flex items-center justify-center space-x-2";
+            shiftText.textContent = "End Shift";
+            breakBtn.disabled = false;
+            breakBtn.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2";
+            breakText.textContent = "Resume Shift";
+          } else {
+            dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+            label.textContent = "On Shift";
+            shiftBtn.className = "w-full bg-rose-600 hover:bg-rose-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-rose-600/20 flex items-center justify-center space-x-2";
+            shiftText.textContent = "End Shift";
+            breakBtn.disabled = false;
+            breakBtn.className = "w-full bg-amber-600 hover:bg-amber-500 text-white py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2";
+            breakText.textContent = "Take Break";
+          }
+        } else {
+          dot.className = "w-2.5 h-2.5 rounded-full bg-slate-500";
+          label.textContent = "Offline";
+          shiftBtn.className = "w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 px-4 rounded-xl font-semibold text-sm transition shadow-lg shadow-emerald-600/20 flex items-center justify-center space-x-2";
+          shiftText.textContent = "Start Shift";
+          breakBtn.disabled = true;
+          breakBtn.className = "w-full bg-slate-800 text-slate-500 cursor-not-allowed py-2.5 px-4 rounded-xl font-semibold text-xs transition flex items-center justify-center space-x-2";
+          breakText.textContent = "Take Break";
+        }
+      }
+
+      async function toggleShift() {
+        if (!currentUser) {
+          currentUser = {
+            username: "LASD Deputy",
+            avatar: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png",
+            roles: ["Verified Staff"],
+            shift: { active: false, on_break: false }
+          };
+        }
+        const active = currentUser.shift && currentUser.shift.active;
+        const endpoint = active ? '/api/shift/end' : '/api/shift/start';
+
+        try {
+          const res = await fetch(endpoint, { method: 'POST' });
+          if (res.ok) {
+            await fetchUserData();
+            showNotification(active ? 'Shift ended successfully!' : 'Shift started successfully!', 'success');
+          } else {
+            const data = await res.json().catch(() => ({ error: 'Action failed' }));
+            showNotification(data.error || 'Action failed', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error', 'error');
+        }
+      }
+
+      async function toggleBreak() {
+        if (!currentUser) {
+          currentUser = { shift: { active: true, on_break: false } };
+        }
+        try {
+          const res = await fetch('/api/shift/break', { method: 'POST' });
+          if (res.ok) {
+            await fetchUserData();
+            showNotification('Break status updated!', 'success');
+          } else {
+            const data = await res.json().catch(() => ({ error: 'Break update failed' }));
+            showNotification(data.error || 'Break update failed', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error', 'error');
+        }
+      }
+
+      function switchLogMode(type) {
+        currentLogType = type;
+        const arrestForm = document.getElementById('arrest-form');
+        const citationForm = document.getElementById('citation-form');
+        const tabArrest = document.getElementById('tab-btn-arrest');
+        const tabCitation = document.getElementById('tab-btn-citation');
+        const formTitle = document.getElementById('form-title');
+        const formIcon = document.getElementById('form-icon');
+
+        if (type === 'arrest') {
+          arrestForm.classList.remove('hidden');
+          citationForm.classList.add('hidden');
+          tabArrest.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-blue-600 text-white";
+          tabCitation.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white";
+          formTitle.textContent = "Create New Arrest Log";
+          formIcon.textContent = "🔒";
+        } else {
+          arrestForm.classList.add('hidden');
+          citationForm.classList.remove('hidden');
+          tabCitation.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-indigo-600 text-white";
+          tabArrest.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white";
+          formTitle.textContent = "Create New Citation Log";
+          formIcon.textContent = "📝";
+        }
+      }
+
+      async function submitArrestForm(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        const suspect = document.getElementById('arrest-suspect').value;
+        const charges = document.getElementById('arrest-charges').value;
+        const details = document.getElementById('arrest-details').value;
+        const notes = document.getElementById('arrest-notes').value;
+
+        formData.append('user', suspect);
+        formData.append('reason', `${charges} - ${details}${notes ? ' (Notes: ' + notes + ')' : ''}`);
+
+        const img = document.getElementById('arrest-image').files[0];
+        if (img) formData.append('image', img);
+
+        try {
+          const res = await fetch('/api/arrest', {
+            method: 'POST',
+            body: formData
+          });
+          const resData = await res.json();
+          if (res.ok) {
+            showNotification('Arrest record submitted to Discord successfully!', 'success');
+            document.getElementById('arrest-form').reset();
+            addLogItem({ type: 'Arrest', suspect, details: `${charges} (${details})`, time: 'Just now' });
+          } else {
+            showNotification(resData.error || 'Failed to submit arrest log', 'error');
+          }
+        } catch (err) {
+          showNotification('Network error submitting arrest log', 'error');
+        }
+      }
+
+      async function submitCitationForm(e) {
+        e.preventDefault();
+        const formData = new FormData();
+        const suspect = document.getElementById('cite-suspect').value;
+        const violation = document.getElementById('cite-violation').value;
+        const fine = document.getElementById('cite-fine').value;
+        const courtDate = document.getElementById('cite-court').value || 'Not scheduled';
+
+        formData.append('user', suspect);
+        formData.append('reason', `${violation} - ${fine}`);
+        formData.append('court_date', courtDate);
+
+        const img = document.getElementById('cite-image').files[0];
+        if (img) formData.append('image', img);
+
+        try {
+          const res = await fetch('/api/citation', {
+            method: 'POST',
+            body: formData
+          });
+          const resData = await res.json();
+          if (res.ok) {
+            showNotification('Citation record submitted to Discord successfully!', 'success');
+            document.getElementById('citation-form').reset();
+            addLogItem({ type: 'Citation', suspect, details: `${violation} - ${fine} (Court: ${courtDate})`, time: 'Just now' });
+          } else {
+            showNotification(resData.error || 'Failed to submit citation log', 'error');
+          }
+        } catch (err) {
+          showNotification('Network error submitting citation log', 'error');
+        }
+      }
+
+      function addLogItem(log) {
+        localSubmittedLogs.unshift(log);
+        renderLogs();
+      }
+
+      function renderLogs() {
+        const container = document.getElementById('logs-container');
+        const query = document.getElementById('log-search').value.toLowerCase();
+
+        // Merge local submissions with backend records (logsList)
+        const allLogs = [
+          ...localSubmittedLogs,
+          ...logsList.map(r => ({
+            type: r.type === 'citation' ? 'Citation' : r.type === 'arrest' ? 'Arrest' : r.type,
+            suspect: r.subject,
+            details: r.description,
+            time: new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          }))
+        ];
+
+        const filtered = allLogs.filter(l => l.suspect.toLowerCase().includes(query) || l.details.toLowerCase().includes(query));
+
+        if (filtered.length === 0) {
+          container.innerHTML = `<div class="p-4 bg-slate-900/40 border border-slate-800 rounded-xl text-center text-xs text-slate-500">No logs matching query.</div>`;
+          return;
+        }
+
+        container.innerHTML = filtered.map(l => `
+          <div class="p-3 bg-slate-900/60 border border-slate-800/80 rounded-xl space-y-1">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold ${l.type === 'Arrest' ? 'text-red-400' : 'text-amber-400'}">${l.type}: ${l.suspect}</span>
+              <span class="text-[10px] text-slate-500">${l.time}</span>
+            </div>
+            <p class="text-xs text-slate-300 font-mono">${l.details}</p>
+          </div>
+        `).join('');
+      }
+
+      function filterLogs() {
+        renderLogs();
+      }
+
+      function refreshLogs() {
+        showNotification('Logs feed synchronized with Discord bot.', 'success');
+      }
+
+      function openLoaModal() {
+        alert('LOA Management portal can be accessed via Discord commands or HR portal.');
+      }
+
+      function showNotification(msg, type) {
+        const banner = document.getElementById('notification-banner');
+        banner.textContent = msg;
+        banner.className = `mt-4 p-3 rounded-xl border text-xs font-semibold ${type === 'success' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`;
+        banner.classList.remove('hidden');
+        setTimeout(() => banner.classList.add('hidden'), 4000);
+      }
+
+      // Live shift timer ticker
+      setInterval(() => {
+        if (currentUser && currentUser.shift.active && currentUser.shift.start_time) {
+          const now = Date.now() / 1000;
+          const elapsed = Math.floor(now - currentUser.shift.start_time);
+          const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+          const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+          const s = String(elapsed % 60).padStart(2, '0');
+          document.getElementById('shift-timer-display').textContent = `${h}:${m}:${s}`;
+        } else {
+          document.getElementById('shift-timer-display').textContent = "00:00:00";
+        }
+      }, 1000);
+
+      let currentTab = 'utilities';
+      let currentCadStatus = '10-7';
+      let currentLogFormType = 'bolo';
+      let currentLogFeedFilter = 'all';
+      let logsList = [];
+
+      async function fetchRecords() {
+        try {
+          const res = await fetch('/api/records');
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.records) {
+              logsList = data.records.filter(r => r.plate !== 'EXAMPLE');
+              renderLogsFeed();
+            }
+          }
+        } catch (e) {
+          console.error("Error fetching records:", e);
+        }
+      }
+      fetchRecords();
+
+      function switchTab(tab) {
+        currentTab = tab;
+        const utilView = document.getElementById('view-utilities');
+        const cadView = document.getElementById('view-cad');
+        const logsView = document.getElementById('view-logs');
+        const btnUtil = document.getElementById('tab-utilities');
+        const btnCad = document.getElementById('tab-cad');
+        const btnLogs = document.getElementById('tab-logs');
+
+        [utilView, cadView, logsView].forEach(v => { if (v) v.classList.add('hidden'); });
+        [btnUtil, btnCad, btnLogs].forEach(b => {
+          if (b) b.className = "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-2";
+        });
+
+        if (tab === 'utilities') {
+          if (utilView) utilView.classList.remove('hidden');
+          if (btnUtil) btnUtil.className = "bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-2";
+          renderLogs();
+        } else if (tab === 'cad') {
+          if (cadView) cadView.classList.remove('hidden');
+          if (btnCad) btnCad.className = "bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-2";
+          fetchCadUnits();
+        } else if (tab === 'logs') {
+          if (logsView) logsView.classList.remove('hidden');
+          if (btnLogs) btnLogs.className = "bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-semibold transition shadow-lg shadow-blue-600/20 flex items-center space-x-2";
+          renderLogsFeed();
+        }
+      }
+
+      function setLogFormType(type) {
+        currentLogFormType = type;
+        const btnBolo = document.getElementById('btn-form-bolo');
+        const btnCite = document.getElementById('btn-form-citation');
+        const btnNote = document.getElementById('btn-form-note');
+        const btnArrest = document.getElementById('btn-form-arrest');
+        const secLabel = document.getElementById('log-secondary-label');
+        const secInput = document.getElementById('log-secondary');
+        const indicator = document.getElementById('form-mode-indicator');
+
+        [btnBolo, btnCite, btnNote, btnArrest].forEach(b => {
+          if (b) b.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition text-slate-400 hover:text-white";
+        });
+
+        if (type === 'bolo') {
+          if (btnBolo) btnBolo.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-red-600 text-white";
+          if (secLabel) secLabel.textContent = "BOLO Priority / Reason";
+          if (secInput) secInput.placeholder = "e.g. Felony / Armed & Dangerous";
+          if (indicator) { indicator.textContent = "🔴 Active Mode: Creating BOLO"; indicator.className = "text-xs text-red-400 font-bold"; }
+        } else if (type === 'citation') {
+          if (btnCite) btnCite.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-amber-600 text-white";
+          if (secLabel) secLabel.textContent = "Violation / Fine Amount";
+          if (secInput) secInput.placeholder = "e.g. Speeding / $350 Fine";
+          if (indicator) { indicator.textContent = "📝 Active Mode: Issuing Citation / Warning"; indicator.className = "text-xs text-amber-400 font-bold"; }
+        } else if (type === 'note') {
+          if (btnNote) btnNote.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-blue-600 text-white";
+          if (secLabel) secLabel.textContent = "Note Category / Tag";
+          if (secInput) secInput.placeholder = "e.g. Suspicious Vehicle / Observation";
+          if (indicator) { indicator.textContent = "📌 Active Mode: Adding Vehicle Note"; indicator.className = "text-xs text-blue-400 font-bold"; }
+        } else if (type === 'arrest') {
+          if (btnArrest) btnArrest.className = "px-3 py-1.5 rounded-lg text-xs font-semibold transition bg-purple-600 text-white";
+          if (secLabel) secLabel.textContent = "Arrest Charges";
+          if (secInput) secInput.placeholder = "e.g. PC 241 - Assault / Grand Theft";
+          if (indicator) { indicator.textContent = "🔒 Active Mode: Logging Arrest"; indicator.className = "text-xs text-purple-400 font-bold"; }
+        }
+      }
+
+      async function submitNewLog(event) {
+        event.preventDefault();
+        const plate = document.getElementById('log-plate').value.trim().toUpperCase().slice(0, 10);
+        const vehicle = document.getElementById('log-vehicle').value.trim();
+        const subject = document.getElementById('log-subject').value.trim() || 'Unknown';
+        const secondary = document.getElementById('log-secondary').value.trim() || 'General';
+        const description = document.getElementById('log-description').value.trim();
+
+        if (!plate || !description) {
+          showNotification('Please fill in plate and description.', 'error');
+          return;
+        }
+
+        // Citation and Arrest logs go through the main page endpoints (Utilities Panel)
+        if (currentLogFormType === 'citation') {
+          const formData = new FormData();
+          formData.append('user', subject);
+          formData.append('reason', `${secondary} - ${description}`);
+          formData.append('court_date', 'Not scheduled');
+
+          try {
+            const res = await fetch('/api/citation', {
+              method: 'POST',
+              body: formData
+            });
+            const resData = await res.json();
+            if (res.ok) {
+              document.getElementById('new-log-form').reset();
+              setLogFormType(currentLogFormType);
+              fetchRecords(); // Refresh records from backend
+              showNotification('Citation submitted to Discord and utilities panel!', 'success');
+            } else {
+              showNotification(resData.error || 'Failed to submit citation', 'error');
+            }
+          } catch (e) {
+            showNotification('Network error submitting citation', 'error');
+          }
+          return;
+        }
+
+        if (currentLogFormType === 'arrest') {
+          const formData = new FormData();
+          formData.append('user', subject);
+          formData.append('reason', `${secondary} - ${description}`);
+
+          try {
+            const res = await fetch('/api/arrest', {
+              method: 'POST',
+              body: formData
+            });
+            const resData = await res.json();
+            if (res.ok) {
+              document.getElementById('new-log-form').reset();
+              setLogFormType(currentLogFormType);
+              fetchRecords(); // Refresh records from backend
+              showNotification('Arrest submitted to Discord and utilities panel!', 'success');
+            } else {
+              showNotification(resData.error || 'Failed to submit arrest', 'error');
+            }
+          } catch (e) {
+            showNotification('Network error submitting arrest', 'error');
+          }
+          return;
+        }
+
+        // BOLO and Note logs go through /api/records
+        const newLog = {
+          type: currentLogFormType,
+          plate: plate,
+          vehicle: vehicle || 'Unknown Vehicle',
+          subject: subject,
+          secondary: secondary,
+          description: description
+        };
+
+        try {
+          const res = await fetch('/api/records', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newLog)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.record) {
+              logsList.unshift(data.record);
+            }
+            document.getElementById('new-log-form').reset();
+            setLogFormType(currentLogFormType);
+            renderLogsFeed();
+            showNotification(`Successfully submitted ${currentLogFormType.toUpperCase()} for plate ${plate}`, 'success');
+          } else {
+            showNotification('Failed to submit record', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error submitting record', 'error');
+        }
+      }
+
+      function setLogFeedFilter(filter) {
+        currentLogFeedFilter = filter;
+        ['all', 'bolo', 'vehicle', 'cite'].forEach(f => {
+          const btn = document.getElementById(`filter-${f}`);
+          if (btn) {
+            if (f === filter) {
+              btn.className = "py-1 rounded-lg text-[10px] font-bold bg-blue-600 text-white transition";
+            } else {
+              btn.className = "py-1 rounded-lg text-[10px] font-semibold text-slate-400 hover:text-white transition";
+            }
+          }
+        });
+        renderLogsFeed();
+      }
+
+      function filterLogsFeed() {
+        renderLogsFeed();
+      }
+
+      async function deleteLogItem(id) {
+        try {
+          const res = await fetch(`/api/records?id=${id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            logsList = logsList.filter(l => l.id !== id);
+            renderLogsFeed();
+            showNotification('Record removed.', 'success');
+          } else {
+            showNotification('Failed to delete record', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error deleting record', 'error');
+        }
+      }
+
+      function renderLogsFeed() {
+        const feedContainer = document.getElementById('logs-right-feed');
+        const countSpan = document.getElementById('total-logs-count');
+        const searchInput = document.getElementById('quick-plate-search');
+        const searchQuery = searchInput ? searchInput.value.trim().toUpperCase() : '';
+
+        if (!feedContainer) return;
+
+        let filtered = logsList.filter(item => {
+          if (currentLogFeedFilter === 'bolo' && item.type !== 'bolo') return false;
+          if (currentLogFeedFilter === 'vehicle' && item.type !== 'note' && item.type !== 'vehicle') return false;
+          if (currentLogFeedFilter === 'cite' && item.type !== 'citation' && item.type !== 'arrest') return false;
+
+          if (searchQuery) {
+            const matchPlate = item.plate.includes(searchQuery);
+            const matchVehicle = item.vehicle.toUpperCase().includes(searchQuery);
+            const matchSubject = item.subject.toUpperCase().includes(searchQuery);
+            const matchDesc = item.description.toUpperCase().includes(searchQuery);
+            if (!matchPlate && !matchVehicle && !matchSubject && !matchDesc) return false;
+          }
+          return true;
+        });
+
+        if (countSpan) countSpan.textContent = `${filtered.length} Record${filtered.length === 1 ? '' : 's'}`;
+
+        if (filtered.length === 0) {
+          feedContainer.innerHTML = `
+            <div class="p-6 bg-slate-900/40 border border-slate-800 rounded-xl text-center text-xs text-slate-500">
+              No matching records found.
+            </div>
+          `;
+          return;
+        }
+
+        let html = '';
+        filtered.forEach(item => {
+          let badgeColor = 'bg-blue-600/20 text-blue-400 border-blue-500/30';
+          let icon = '📌';
+          let title = item.secondary;
+          if (item.type === 'bolo') {
+            badgeColor = 'bg-red-600/20 text-red-400 border-red-500/30';
+            icon = '🔴';
+            title = `BOLO: ${item.secondary}`;
+          } else if (item.type === 'citation') {
+            badgeColor = 'bg-amber-600/20 text-amber-400 border-amber-500/30';
+            icon = '📝';
+            title = `Citation: ${item.secondary}`;
+          } else if (item.type === 'arrest') {
+            badgeColor = 'bg-purple-600/20 text-purple-400 border-purple-500/30';
+            icon = '🔒';
+            title = `Arrest: ${item.secondary}`;
+          } else if (item.type === 'note') {
+            badgeColor = 'bg-teal-600/20 text-teal-400 border-teal-500/30';
+            icon = '🚗';
+            title = `Vehicle Log: ${item.secondary}`;
+          }
+
+          const dateStr = new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          html += `
+            <div class="bg-slate-900/80 border border-slate-800/80 rounded-xl p-3 text-xs space-y-2 relative group">
+              <div class="flex items-center justify-between">
+                <span class="font-mono font-bold bg-slate-800 text-slate-200 px-2 py-0.5 rounded border border-slate-700">${item.plate}</span>
+                <span class="text-[10px] font-mono text-slate-400">${dateStr}</span>
+              </div>
+              <div class="flex items-center space-x-1.5">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeColor}">${icon} ${title}</span>
+              </div>
+              <p class="text-slate-300 text-[11px] leading-relaxed">${item.description}</p>
+              <div class="flex items-center justify-between pt-1 border-t border-slate-800/60 text-[10px] text-slate-400">
+                <span>Vehicle: ${item.vehicle}</span>
+                <span>Owner: ${item.subject}</span>
+              </div>
+              <button type="button" onclick="deleteLogItem(${item.id})" class="absolute top-2 right-2 text-slate-600 hover:text-red-400 transition opacity-0 group-hover:opacity-100" title="Delete Record">✕</button>
+            </div>
+          `;
+        });
+
+        feedContainer.innerHTML = html;
+      }
+
+      function toggleCadMenu(menuId) {
+        const menu = document.getElementById(menuId);
+        ['lookup-menu', 'records-menu', 'status-popup'].forEach(id => {
+          if (id !== menuId) document.getElementById(id).classList.add('hidden');
+        });
+        menu.classList.toggle('hidden');
+      }
+
+      let _panicPlaying = false;
+
+      async function fetchCadUnits() {
+        try {
+          const res = await fetch('/api/units');
+          if (!res.ok) return;
+          const data = await res.json();
+          const units = data.units || [];
+
+          document.getElementById('cad-active-count').textContent = `Active Units: ${units.length}`;
+          const tbody = document.getElementById('cad-units-tbody');
+
+          if (units.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-500">No active units on duty. Start a shift to appear on CAD.</td></tr>`;
+            return;
+          }
+
+          let hasPanic = false;
+          units.forEach(u => {
+            if (u.status === 'Panic') hasPanic = true;
+          });
+
+          if (hasPanic && !_panicPlaying) {
+            _panicPlaying = true;
+            try {
+              const audio = new Audio('/panic-button.mp3');
+              audio.play().catch(e => console.log("Audio play blocked:", e));
+              setTimeout(() => { _panicPlaying = false; }, 10000);
+            } catch (e) {
+              _panicPlaying = false;
+            }
+          }
+
+            tbody.innerHTML = units.map(u => {
+              const statusColor = getStatusColor(u.status);
+
+              return `
+                <tr class="hover:bg-slate-900/40 transition">
+                  <td class="py-3.5 px-4 font-mono font-bold text-white">${u.unit_number}</td>
+                  <td class="py-3.5 px-4 font-semibold text-white">${u.name}</td>
+                  <td class="py-3.5 px-4 text-slate-300">${u.location}</td>
+                  <td class="py-3.5 px-4 text-slate-400">${u.rank}</td>
+                  <td class="py-3.5 px-4">
+                    <span class="inline-flex items-center space-x-1.5 border px-2.5 py-1 rounded-full font-bold text-[11px] ${statusColor}">
+                      <span class="w-2 h-2 rounded-full"></span>
+                      <span>${u.status}</span>
+                    </span>
+                  </td>
+                </tr>
+              `;
+            }).join('');
+        } catch (e) {
+          console.error("Error fetching CAD units:", e);
+        }
+      }
+
+      function promptChangeCallsign() {
+        const callsign = prompt("Enter new Callsign / Unit Number (e.g. 1-A-12):", "1-A-1");
+        if (callsign) {
+          fetch('/api/units/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ unit_number: callsign })
+          }).then(res => {
+            if (res.ok) {
+              showNotification(`Callsign updated to ${callsign}`, 'success');
+              fetchCadUnits();
+            } else {
+              showNotification('Failed to update callsign', 'error');
+            }
+          });
+        }
+      }
+
+      async function setCadStatus(status) {
+        currentCadStatus = status;
+        document.getElementById('cad-current-status-label').textContent = status;
+        const trigger = document.getElementById('cad-status-trigger');
+        const dot = trigger.querySelector('.rounded-full');
+
+        let colorClass = 'bg-red-500';
+        let bgBorderClass = 'bg-red-600/20 border-red-500/40 text-red-400 hover:bg-red-600/30';
+        if (status === '10-6') {
+          colorClass = 'bg-amber-500';
+          bgBorderClass = 'bg-amber-600/20 border-amber-500/40 text-amber-400 hover:bg-amber-600/30';
+        } else if (status === '10-8') {
+          colorClass = 'bg-teal-400';
+          bgBorderClass = 'bg-teal-600/20 border-teal-500/40 text-teal-400 hover:bg-teal-600/30';
+        } else if (status === '10-76') {
+          colorClass = 'bg-blue-500';
+          bgBorderClass = 'bg-blue-600/20 border-blue-500/40 text-blue-400 hover:bg-blue-600/30';
+        } else if (status === '10-97') {
+          colorClass = 'bg-emerald-500';
+          bgBorderClass = 'bg-emerald-600/20 border-emerald-500/40 text-emerald-400 hover:bg-emerald-600/30';
+        } else if (status === 'Panic') {
+          colorClass = 'bg-rose-500 animate-pulse';
+          bgBorderClass = 'bg-rose-600/30 border-rose-500 text-rose-300 hover:bg-rose-600/40';
+        }
+
+        if (dot) dot.className = `w-2.5 h-2.5 rounded-full ${colorClass}`;
+        if (trigger) trigger.className = `border px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 ${bgBorderClass}`;
+
+        const popup = document.getElementById('status-popup');
+        if (popup) popup.classList.add('hidden');
+
+        if (status === 'Panic') {
+          try {
+            const audio = new Audio('/panic-button.mp3');
+            audio.play().catch(e => console.log("Audio play blocked:", e));
+          } catch (e) {}
+        }
+
+        try {
+          const res = await fetch('/api/units/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+          });
+          if (res.ok) {
+            showNotification(`CAD Status updated to ${status}`, 'success');
+            fetchCadUnits();
+          } else {
+            const err = await res.json();
+            showNotification(err.error || 'Failed to update status', 'error');
+          }
+        } catch (e) {
+          showNotification('Network error updating CAD status', 'error');
+        }
+      }
+
+      function promptChangeLocation() {
+        const location = prompt("Enter new Location / Sector (e.g. Sector 4 / Downtown):", "Patrol Area 1");
+        if (location) {
+          fetch('/api/units/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ location })
+          }).then(res => {
+            if (res.ok) {
+              showNotification(`Location updated to ${location}`, 'success');
+              fetchCadUnits();
+            } else {
+              showNotification('Failed to update location', 'error');
+            }
+          });
+        }
+      }
+
+      function performLookup(type) {
+        toggleCadMenu('lookup-menu');
+        const query = prompt(`Enter ${type} name or details to search in current records:`, "");
+        if (!query) return;
+
+        switchTab('utilities');
+        document.getElementById('log-search').value = query;
+        filterLogs();
+        showNotification(`Searched records for "${query}" (${type})`, 'success');
+      }
+
+      // Initial UI render with default user profile, then fetch live data and poll
+      updateUI();
+      renderLogsFeed();
+      fetchUserData();
+      console.log("Initial data fetch called");
+      setInterval(fetchUserData, 3000);
+
+      const STATUS_COLORS = {
+        '10-7': 'bg-red-500 text-red-400 bg-red-600/20 border-red-500/30',
+        '10-6': 'bg-amber-500 text-amber-400 bg-amber-600/20 border-amber-500/30',
+        '10-8': 'bg-teal-400 text-teal-300 bg-teal-600/20 border-teal-500/30',
+        '10-76': 'bg-blue-500 text-blue-400 bg-blue-600/20 border-blue-500/30',
+        '10-97': 'bg-emerald-500 text-emerald-400 bg-emerald-600/20 border-emerald-500/30',
+        'Panic': 'bg-rose-500 text-rose-300 bg-rose-600/30 border-rose-500/50 animate-pulse'
+      };
+
+      function getStatusColor(status) {
+        return STATUS_COLORS[status] || STATUS_COLORS['10-7'];
+      }
+
+    </script>
+  </body>
+</html>

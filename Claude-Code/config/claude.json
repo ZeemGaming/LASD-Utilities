@@ -1,0 +1,6 @@
+{
+  "primaryModel": "claude-3-5-sonnet",
+  "apiBaseUrl": "http://localhost:4000",
+  "apiKey": "mock-key",
+  "hasCompletedOnboarding": true
+}

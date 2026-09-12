@@ -1,0 +1,22 @@
+[
+    {
+        "id": 1789166618829,
+        "type": "citation",
+        "plate": "ABC123",
+        "vehicle": "car make model color",
+        "subject": "name",
+        "secondary": "soirehkjevfh",
+        "description": "Hello! Testing.",
+        "timestamp": 1789166618829.1804
+    },
+    {
+        "id": 1789009427834,
+        "type": "citation",
+        "plate": "ABC123",
+        "vehicle": "car make model color",
+        "subject": "name",
+        "secondary": "soirehkjevfh",
+        "description": "another feuiowh",
+        "timestamp": 1789009427834.364
+    }
+]

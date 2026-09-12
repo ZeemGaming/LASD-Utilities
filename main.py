@@ -35,6 +35,8 @@ ALLOWED_USER_IDS = {
     1422647977880584324,  # @zeemonyt. (Secondary ID)
 }
 
+WEB_PANEL_ROLE_ID = 1538076681586217031
+
 # Role IDs allowed to run admin commands
 ALLOWED_ROLE_IDS = {
     1538076681628028957,
@@ -183,13 +185,13 @@ async def discord_callback_handler(request: web.Request) -> web.StreamResponse:
         is_authorized = True
     else:
         for role_id in user_roles:
-            if role_id in MR_PLUS_ROLE_IDS:
+            if role_id == WEB_PANEL_ROLE_ID:
                 is_authorized = True
                 break
 
     if not is_authorized:
         return web.Response(
-            text="Access Denied: You must be Middle Rank (MR+) or higher in the LASD server to access the admin panel.",
+            text="Access Denied: You do not have the required role (1538076681586217031) to access the admin panel.",
             status=403
         )
 
@@ -245,11 +247,79 @@ def get_auth_user_id(request: web.Request) -> int:
     return 1422647977880584324
 
 
+SHIFTS_FILE = "shifts.json"
+RECORDS_FILE = "records.json"
+
+
 def save_shift_data():
-    """Placeholder for saving shift data if needed."""
-    pass
+    """Saves shift and record data to JSON files."""
+    try:
+        with open(SHIFTS_FILE, "w") as f:
+            json.dump({
+                "active": {str(k): v for k, v in active_shifts.items()},
+                "leaderboard": {str(k): v for k, v in shift_leaderboard_data.items()},
+                "last": {str(k): v for k, v in last_shifts.items()}
+            }, f, indent=4)
+        with open(RECORDS_FILE, "w") as f:
+            json.dump(records_list, f, indent=4)
+    except Exception as e:
+        print(f"Error saving data: {e}")
+
+
+def load_shift_data():
+    """Loads shift and record data from JSON files."""
+    global active_shifts, shift_leaderboard_data, last_shifts, records_list
+    if os.path.exists(SHIFTS_FILE):
+        try:
+            with open(SHIFTS_FILE, "r") as f:
+                data = json.load(f)
+                active_shifts = {int(k): v for k, v in data.get("active", {}).items()}
+                shift_leaderboard_data = {int(k): v for k, v in data.get("leaderboard", {}).items()}
+                last_shifts = {int(k): v for k, v in data.get("last", {}).items()}
+        except Exception as e:
+            print(f"Error loading shift data: {e}")
+    if os.path.exists(RECORDS_FILE):
+        try:
+            with open(RECORDS_FILE, "r") as f:
+                records_list = [r for r in json.load(f) if r.get("plate") != "EXAMPLE"]
+        except Exception as e:
+            print(f"Error loading records: {e}")
+    else:
+        records_list = []
+        save_shift_data()
+
+async def check_user_web_panel_auth(request: web.Request) -> bool:
+    auth_cookie = request.cookies.get("lasd_admin_auth")
+    if not auth_cookie:
+        return False
+    try:
+        user_id = int(auth_cookie)
+    except ValueError:
+        return False
+
+    if user_id in ALLOWED_USER_IDS:
+        return True
+
+    if bot.is_ready():
+        try:
+            guild = bot.get_guild(GUILD_ID)
+            if not guild:
+                guild = await asyncio.wait_for(bot.fetch_guild(GUILD_ID), timeout=3.0)
+            if guild:
+                member = guild.get_member(user_id)
+                if not member:
+                    member = await asyncio.wait_for(guild.fetch_member(user_id), timeout=3.0)
+                if member and any(r.id == WEB_PANEL_ROLE_ID for r in member.roles):
+                    return True
+        except Exception:
+            pass
+    return False
+
 
 async def admin_handler(request: web.Request) -> web.StreamResponse:
+    if not await check_user_web_panel_auth(request):
+        return web.HTTPFound(location=os.getenv("DISCORD_CALLBACK_URL", ""))
+
     file_path = os.path.join(WEBSITE_DIR, "panel-frontend.html")
     if os.path.isfile(file_path):
         return web.FileResponse(file_path)
@@ -258,6 +328,9 @@ async def admin_handler(request: web.Request) -> web.StreamResponse:
 
 
 async def admin_hr_handler(request: web.Request) -> web.StreamResponse:
+    if not await check_user_web_panel_auth(request):
+        return web.HTTPFound(location=os.getenv("DISCORD_CALLBACK_URL", ""))
+
     file_path = os.path.join(WEBSITE_DIR, "panel-hr-frontend.html")
     if os.path.isfile(file_path):
         return web.FileResponse(file_path)
@@ -266,8 +339,9 @@ async def admin_hr_handler(request: web.Request) -> web.StreamResponse:
 
 
 async def api_user_handler(request: web.Request) -> web.Response:
+    # user_id = get_auth_user_id(request)
+    # print(f"[API LOG] /api/user requested. Auth user_id: {user_id}, cookie present: {'lasd_admin_auth' in request.cookies}, bot.is_ready(): {bot.is_ready()}")
     user_id = get_auth_user_id(request)
-    print(f"[API LOG] /api/user requested. Auth user_id: {user_id}, cookie present: {'lasd_admin_auth' in request.cookies}, bot.is_ready(): {bot.is_ready()}")
 
     username = "LASD Deputy"
     avatar = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png"
@@ -280,27 +354,27 @@ async def api_user_handler(request: web.Request) -> web.Response:
                 try:
                     guild = await asyncio.wait_for(bot.fetch_guild(GUILD_ID), timeout=3.0)
                 except Exception as e:
-                    print(f"[API LOG] Error fetching guild {GUILD_ID}: {e}")
+                    # print(f"[API LOG] Error fetching guild {GUILD_ID}: {e}")
                     guild = None
 
-            print(f"[API LOG] Guild found/fetched: {guild is not None}")
+            # print(f"[API LOG] Guild found/fetched: {guild is not None}")
             member = None
             if guild:
                 member = guild.get_member(user_id)
-                print(f"[API LOG] Member found in cache for user_id {user_id}: {member is not None}")
+                # print(f"[API LOG] Member found in cache for user_id {user_id}: {member is not None}")
                 if not member:
                     try:
                         member = await asyncio.wait_for(guild.fetch_member(user_id), timeout=3.0)
-                        print(f"[API LOG] Member fetched via API for user_id {user_id}: {member is not None}")
+                        # print(f"[API LOG] Member fetched via API for user_id {user_id}: {member is not None}")
                     except Exception as e:
-                        print(f"[API LOG] Error fetching member {user_id} from guild {GUILD_ID}: {e}")
+                        # print(f"[API LOG] Error fetching member {user_id} from guild {GUILD_ID}: {e}")
                         member = None
 
             if member:
                 username = member.display_name
                 avatar = str(member.display_avatar.url)
                 roles = [r.name for r in member.roles if r.name != "@everyone"]
-                print(f"[API LOG] Resolved user via Member: {username}, Roles: {roles}")
+                # print(f"[API LOG] Resolved user via Member: {username}, Roles: {roles}")
             else:
                 try:
                     user = await asyncio.wait_for(bot.fetch_user(user_id), timeout=3.0)
@@ -308,13 +382,16 @@ async def api_user_handler(request: web.Request) -> web.Response:
                         username = user.name
                         avatar = str(user.display_avatar.url)
                         roles = []
-                        print(f"[API LOG] Resolved user via bot.fetch_user: {username}")
+                        # print(f"[API LOG] Resolved user via bot.fetch_user: {username}")
                 except Exception as e:
-                    print(f"[API LOG] Error fetching user {user_id} via bot.fetch_user: {e}")
+                    # print(f"[API LOG] Error fetching user {user_id} via bot.fetch_user: {e}")
+                    pass
         except Exception as e:
-            print(f"[API LOG] Exception in api_user_handler bot lookup: {e}")
+            # print(f"[API LOG] Exception in api_user_handler bot lookup: {e}")
+            pass
     else:
-        print(f"[API LOG] Bot is not ready yet. Returning default profile.")
+        # print(f"[API LOG] Bot is not ready yet. Returning default profile.")
+        pass
 
     shift = active_shifts.get(user_id)
     shift_info = {
@@ -450,6 +527,8 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
 
     suspect = ""
     reason = ""
+    plate = ""
+    court_date = "Not scheduled"
     files = []
 
     if request.content_type == "multipart/form-data":
@@ -463,6 +542,10 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
                     reason += f" | {val}"
                 else:
                     reason = val
+            elif field.name == "plate":
+                plate = await field.text()
+            elif field.name == "court_date":
+                court_date = await field.text() or "Not scheduled"
             elif field.name in ["image", "image1", "image2"]:
                 filename = field.filename or "evidence.png"
                 file_bytes = await field.read()
@@ -478,6 +561,8 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
             reason = f"{charges} - {details}"
             if notes:
                 reason += f" (Notes: {notes})"
+            plate = data.get("plate", "")
+            court_date = data.get("court_date", "Not scheduled")
         except Exception:
             pass
 
@@ -507,11 +592,15 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
 
     officer_mention = member.mention if member else f"<@{user_id}>"
 
+    plate_display = plate.strip().upper()[:10] if plate else "N/A"
+
     content = (
         f"User: {suspect}\n"
         f"Reason for arrest: {reason}\n"
-        f"Image:\n"
-        f"Arresting Officer: {officer_mention}"
+        f"Court date: {court_date}\n"
+        f"Plate: {plate_display}\n"
+        f"Arresting Officer: {officer_mention}\n"
+        f"Image:"
     )
 
     if not channel:
@@ -525,6 +614,20 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
+    # Add to records list so it updates utilities panel / records
+    new_record = {
+        "id": int(time.time() * 1000),
+        "type": "arrest",
+        "plate": plate_display,
+        "vehicle": "Unknown",
+        "subject": suspect,
+        "secondary": "Arrest Record",
+        "description": reason,
+        "timestamp": time.time() * 1000
+    }
+    records_list.insert(0, new_record)
+    save_shift_data()
+
     return web.json_response({"success": True})
 
 async def api_citation_handler(request: web.Request) -> web.Response:
@@ -533,6 +636,7 @@ async def api_citation_handler(request: web.Request) -> web.Response:
     suspect = ""
     reason = ""
     court_date = "Not scheduled"
+    plate = ""
     discord_file = None
 
     if request.content_type == "multipart/form-data":
@@ -548,6 +652,8 @@ async def api_citation_handler(request: web.Request) -> web.Response:
                     reason = val
             elif field.name == "court_date":
                 court_date = await field.text() or "Not scheduled"
+            elif field.name == "plate":
+                plate = await field.text()
             elif field.name == "image":
                 filename = field.filename or "evidence.png"
                 file_bytes = await field.read()
@@ -564,6 +670,7 @@ async def api_citation_handler(request: web.Request) -> web.Response:
             if notes:
                 reason += f" (Notes: {notes})"
             court_date = data.get("court_date", "Not scheduled")
+            plate = data.get("plate", "")
         except Exception:
             pass
 
@@ -593,12 +700,15 @@ async def api_citation_handler(request: web.Request) -> web.Response:
 
     officer_mention = member.mention if member else f"<@{user_id}>"
 
+    plate_display = plate.strip().upper()[:10] if plate else "N/A"
+
     content = (
         f"User: {suspect}\n"
         f"Reason: {reason}\n"
         f"Court date: {court_date}\n"
-        "Image:\n"
-        f"Submitted by: {officer_mention}"
+        f"Plate: {plate_display}\n"
+        f"Submitted by: {officer_mention}\n"
+        f"Image:"
     )
 
     if not channel:
@@ -611,6 +721,20 @@ async def api_citation_handler(request: web.Request) -> web.Response:
             await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
+
+    # Add to records list so it updates utilities panel / records
+    new_record = {
+        "id": int(time.time() * 1000),
+        "type": "citation",
+        "plate": plate_display,
+        "vehicle": "Unknown",
+        "subject": suspect,
+        "secondary": "Citation Record",
+        "description": f"{reason} (Court: {court_date})",
+        "timestamp": time.time() * 1000
+    }
+    records_list.insert(0, new_record)
+    save_shift_data()
 
     return web.json_response({"success": True})
 
@@ -701,6 +825,50 @@ async def api_unit_status_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=400)
 
 
+async def api_records_handler(request: web.Request) -> web.Response:
+    auth_cookie = request.cookies.get("lasd_admin_auth")
+    if not auth_cookie:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    return web.json_response({"records": records_list})
+
+
+async def api_records_post_handler(request: web.Request) -> web.Response:
+    auth_cookie = request.cookies.get("lasd_admin_auth")
+    if not auth_cookie:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        data = await request.json()
+        new_record = {
+            "id": int(time.time() * 1000),
+            "type": data.get("type", "note"),
+            "plate": data.get("plate", "UNKNOWN").upper()[:10],
+            "vehicle": data.get("vehicle", "Unknown"),
+            "subject": data.get("subject", "Unknown"),
+            "secondary": data.get("secondary", ""),
+            "description": data.get("description", ""),
+            "timestamp": time.time() * 1000
+        }
+        records_list.insert(0, new_record)
+        save_shift_data()
+        return web.json_response({"success": True, "record": new_record})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def api_records_delete_handler(request: web.Request) -> web.Response:
+    auth_cookie = request.cookies.get("lasd_admin_auth")
+    if not auth_cookie:
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        record_id = int(request.query.get('id', 0))
+        global records_list
+        records_list = [r for r in records_list if r.get('id') != record_id]
+        save_shift_data()
+        return web.json_response({"success": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
 async def start_web_server() -> web.AppRunner:
     """Starts the website and health server on the same async loop as the Discord bot."""
     app = web.Application()
@@ -720,6 +888,9 @@ async def start_web_server() -> web.AppRunner:
     app.router.add_post("/api/citation", api_citation_handler)
     app.router.add_get("/api/units", api_units_handler)
     app.router.add_post("/api/units/status", api_unit_status_handler)
+    app.router.add_get("/api/records", api_records_handler)
+    app.router.add_post("/api/records", api_records_post_handler)
+    app.router.add_delete("/api/records", api_records_delete_handler)
     app.router.add_get("/{tail:.*}", website_handler)
 
     runner = web.AppRunner(app)
@@ -735,6 +906,9 @@ active_shifts = {}
 
 # Saved cumulative shift history: { user_id: total_seconds_floated }
 shift_leaderboard_data = {}
+
+# Logs: [ { "id": int, "type": str, "plate": str, "vehicle": str, "subject": str, "secondary": str, "description": str, "timestamp": float } ]
+records_list = []
 
 # Last completed shift duration memory for clearing: { user_id: last_shift_seconds_floated }
 last_shifts = {}
@@ -884,6 +1058,17 @@ def parse_time_string(time_str: str) -> float:
         total_seconds = (hours * 3600) + (minutes * 60) + seconds
 
     return total_seconds
+
+
+def has_web_panel_role(interaction: discord.Interaction) -> bool:
+    """Checks if the user has the required role (1538076681586217031) or is in ALLOWED_USER_IDS."""
+    if interaction.user.id in ALLOWED_USER_IDS:
+        return True
+
+    if isinstance(interaction.user, discord.Member):
+        return any(role.id == WEB_PANEL_ROLE_ID for role in interaction.user.roles)
+
+    return False
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
@@ -1433,6 +1618,7 @@ async def on_connect():
 
 @bot.event
 async def on_ready():
+    load_shift_data()
     print(f"[BOT LOG] Logged in as {bot.user} (ID: {bot.user.id}), ready={bot.is_ready()}, guilds={[g.name for g in bot.guilds]}")
 
     if not weekly_quota_reset.is_running():
@@ -1661,6 +1847,15 @@ async def on_message(message: discord.Message):
 
 @bot.tree.command(name="shift-start", description="Start your staff shift and update your server nickname.")
 async def shift_start(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use shift commands.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
     user_id = interaction.user.id
 
     if not interaction.guild or not isinstance(interaction.user, discord.Member):
@@ -1714,6 +1909,15 @@ async def shift_start(interaction: discord.Interaction):
 
 @bot.tree.command(name="shift-break", description="Pause or resume your active shift for a break.")
 async def shift_break(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use shift commands.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
     user_id = interaction.user.id
 
     if user_id not in active_shifts:
@@ -1758,6 +1962,15 @@ async def shift_break(interaction: discord.Interaction):
 
 @bot.tree.command(name="shift-end", description="End your staff shift and restore your nickname.")
 async def shift_end(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use shift commands.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
     user_id = interaction.user.id
 
     if user_id not in active_shifts:
@@ -1812,6 +2025,15 @@ async def shift_end(interaction: discord.Interaction):
 
 @bot.tree.command(name="shift-leaderboard", description="View total logged shift time across all staff.")
 async def shift_leaderboard(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use shift commands.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
     if not shift_leaderboard_data:
         embed = discord.Embed(
             title="Shift Leaderboard",
@@ -1859,10 +2081,10 @@ async def shift_admin(
     option: app_commands.Choice[str],
     time_input: str = None
 ):
-    if not is_admin(interaction):
+    if not has_web_panel_role(interaction) and not is_admin(interaction):
         embed = discord.Embed(
-            title="Permission Denied",
-            description="You do not have permission to use admin shift commands.",
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use admin shift commands.",
             color=discord.Color.red()
         )
         embed.set_footer(text="Made by zeemonyt")
@@ -2317,6 +2539,7 @@ async def strike_list(interaction: discord.Interaction, user: discord.Member):
     user="Roblox username of the cited subject",
     reason="Reason for the citation",
     court_date="Optional court date",
+    plate="Optional license plate (max 10 chars)",
     image="Optional proof image"
 )
 async def cite(
@@ -2324,6 +2547,7 @@ async def cite(
     user: str,
     reason: str,
     court_date: str = None,
+    plate: str = None,
     image: discord.Attachment = None
 ):
     channel = interaction.guild.get_channel(CITE_LOG_CHANNEL_ID) if interaction.guild else None
@@ -2341,6 +2565,7 @@ async def cite(
         f"User: {user}\n"
         f"Reason: {reason}\n"
         f"Court date: {court_date or 'Not scheduled'}\n"
+        f"Plate: {plate.upper()[:10] if plate else 'N/A'}\n"
         "Image:\n"
         f"Submitted by: {interaction.user.mention}"
     )
@@ -2382,6 +2607,20 @@ async def cite(
             await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
+    if plate:
+        plate_clean = plate.strip().upper()[:10]
+        records_list.insert(0, {
+            "id": int(time.time() * 1000),
+            "type": "citation",
+            "plate": plate_clean,
+            "vehicle": "Unknown Vehicle",
+            "subject": user,
+            "secondary": reason[:50],
+            "description": f"Citation issued to {user}: {reason} (Court: {court_date or 'None'})",
+            "timestamp": time.time() * 1000
+        })
+        save_shift_data()
+
     embed = discord.Embed(
         title="Citation Successfully Logged",
         description=f"Logged citation for Roblox user **{user}** in <#{CITE_LOG_CHANNEL_ID}>.",
@@ -2399,6 +2638,7 @@ async def cite(
     charges="Charges / Penal Code (e.g. PC 241 - Assault on Peace Officer)",
     details="Fine Amount ($) & Jail Time (e.g. $5,000 / 30 Minutes)",
     notes="Optional officer notes or summary",
+    plate="Optional license plate (max 10 chars)",
     image="Primary proof image attachment",
     image1="Optional second proof image",
     image2="Optional third proof image"
@@ -2409,6 +2649,7 @@ async def arrest(
     charges: str,
     details: str,
     notes: str = "",
+    plate: str = None,
     image: discord.Attachment = None,
     image1: discord.Attachment = None,
     image2: discord.Attachment = None,
@@ -2431,6 +2672,7 @@ async def arrest(
     content = (
         f"User: {user}\n"
         f"Reason for arrest: {reason_str}\n"
+        f"Plate: {plate.upper()[:10] if plate else 'N/A'}\n"
         f"Image:\n"
         f"Arresting Officer: {interaction.user.mention}"
     )
@@ -2467,6 +2709,20 @@ async def arrest(
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
+
+    if plate:
+        plate_clean = plate.strip().upper()[:10]
+        records_list.insert(0, {
+            "id": int(time.time() * 1000),
+            "type": "arrest",
+            "plate": plate_clean,
+            "vehicle": "Unknown Vehicle",
+            "subject": user,
+            "secondary": charges[:50],
+            "description": f"Arrest logged for {user}: {charges} - {details}. Notes: {notes}",
+            "timestamp": time.time() * 1000
+        })
+        save_shift_data()
 
     embed = discord.Embed(
         title="Arrest Successfully Logged",

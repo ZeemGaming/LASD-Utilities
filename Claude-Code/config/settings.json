@@ -1,0 +1,11 @@
+{
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true
+  },
+  "theme": "auto",
+  "primaryModel": "claude-3-5-sonnet",
+  "apiBaseUrl": "http://127.0.0.1:4000",
+  "apiKey": "sk-ant-api03-mockkeyvaluehash0123456789abcdefghijklmnopqrstuvwxyz-PASS",
+  "hasCompletedOnboarding": true,
+  "awaySummaryEnabled": false
+}

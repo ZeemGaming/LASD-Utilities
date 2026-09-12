@@ -1,0 +1,152 @@
+{
+  "proto": 1,
+  "supervisorPid": 1297,
+  "updatedAt": 1789180175105,
+  "workers": {
+    "f19aa4d7": {
+      "pid": 1330,
+      "procStart": "262195",
+      "sessionId": "f19aa4d7-14b2-4fc1-86c3-e886124dfd59",
+      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/f19aa4d7.sock",
+      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/pty/f19aa4d7.sock",
+      "cliVersion": "2.1.269",
+      "startedAt": 1789179299177,
+      "attempt": 1,
+      "cwd": "/home/runner/workspace",
+      "dispatch": {
+        "proto": 1,
+        "short": "f19aa4d7",
+        "nonce": "dd2a1070",
+        "sessionId": "f19aa4d7-14b2-4fc1-86c3-e886124dfd59",
+        "createdAt": 1789179298257,
+        "source": "slash",
+        "cwd": "/home/runner/workspace",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "/home/runner/workspace/Claude-Code/config/projects/-home-runner-workspace/6bc43d4d-248c-4630-b614-13aaaebc7b0f.jsonl",
+          "fork": true,
+          "flagArgs": [
+            "--permission-mode",
+            "acceptEdits"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {
+          "CLAUDE_CONFIG_DIR": "/home/runner/workspace/Claude-Code/config/",
+          "ANTHROPIC_MODEL": "claude-3-5-sonnet",
+          "CLAUDE_BG_ISOLATION": "none"
+        },
+        "isolation": "none",
+        "respawnFlags": [
+          "--permission-mode",
+          "acceptEdits"
+        ],
+        "seed": {
+          "intent": "Continue.",
+          "name": "Citation log utilities panel"
+        },
+        "cols": 92,
+        "rows": 41
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 342,
+          "msgsInJsonl": 342,
+          "msgsRenderedAtFirstPaint": 342
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "rvAuth": "b9cbd877ae60d1863e2e9007ae0e78f5",
+      "ptyAuth": "9b4b59fa2e33ec76cdb6148fbb7eceaf",
+      "replPid": 1348,
+      "replProcStart": "262208"
+    },
+    "d5244716": {
+      "pid": 1490,
+      "procStart": "263197",
+      "sessionId": "d5244716-eda3-46a4-9822-6cec62efdd77",
+      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/d5244716.sock",
+      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/spare/f17c68d5.pty.sock",
+      "cliVersion": "2.1.269",
+      "startedAt": 1789180138539,
+      "attempt": 1,
+      "cwd": "/home/runner/workspace",
+      "dispatch": {
+        "proto": 1,
+        "short": "d5244716",
+        "nonce": "c94fede6",
+        "sessionId": "d5244716-eda3-46a4-9822-6cec62efdd77",
+        "createdAt": 1789180138533,
+        "source": "fleet",
+        "cwd": "/home/runner/workspace",
+        "launch": {
+          "mode": "resume",
+          "sessionId": "d5244716-eda3-46a4-9822-6cec62efdd77",
+          "transcriptPath": "/home/runner/workspace/Claude-Code/config/projects/-home-runner-workspace--claude-worktrees-abstract-juggling-starlight/d5244716-eda3-46a4-9822-6cec62efdd77.jsonl",
+          "fork": false,
+          "flagArgs": [
+            "--agent",
+            "claude",
+            "--permission-mode",
+            "acceptEdits"
+          ],
+          "restoresTranscript": true
+        },
+        "env": {
+          "CLAUDE_CONFIG_DIR": "/home/runner/workspace/Claude-Code/config/",
+          "ANTHROPIC_MODEL": "claude-3-5-sonnet"
+        },
+        "isolation": "none",
+        "respawnFlags": [
+          "--agent",
+          "claude",
+          "--permission-mode",
+          "acceptEdits"
+        ],
+        "agent": "claude",
+        "seed": {
+          "intent": "",
+          "name": "citation log routing"
+        },
+        "cols": 84,
+        "rows": 41
+      },
+      "decModes": [
+        1000,
+        1002,
+        1003,
+        1006,
+        2004,
+        2031,
+        1004
+      ],
+      "firedInteractiveMarks": [
+        {
+          "kind": "content_paint",
+          "msgsLoaded": 96,
+          "msgsInJsonl": 96,
+          "msgsRenderedAtFirstPaint": 96
+        },
+        {
+          "kind": "prompt_idle"
+        }
+      ],
+      "rvAuth": "c7ab3557c28095f8eaa8f8cf9da71f2a",
+      "ptyAuth": "259ac5c705fdf65307b1a813db243da7",
+      "replPid": 1502,
+      "replProcStart": "263208"
+    }
+  }
+}

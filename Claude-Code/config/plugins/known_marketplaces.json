@@ -1,0 +1,10 @@
+{
+  "claude-plugins-official": {
+    "source": {
+      "source": "github",
+      "repo": "anthropics/claude-plugins-official"
+    },
+    "installLocation": "/home/runner/workspace/Claude-Code/config/plugins/marketplaces/claude-plugins-official",
+    "lastUpdated": "2026-09-12T02:23:21.449Z"
+  }
+}
