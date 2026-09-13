@@ -21,11 +21,15 @@ ARREST_LOG_CHANNEL_ID = 1538076682441724001
 CITE_LOG_CHANNEL_ID = 1538076682441724002
 VERIFICATION_CHANNEL_ID = 1545124075989504170
 VERIFIED_ROLE_ID = 1545109313276878879
-QUOTA_REQUIRED_SECONDS = 7200  # 2 Hours
+QUOTA_REQUIRED_SECONDS = 5400  # 1h 30m
 WEB_PORT = int(os.getenv("PORT", "5000"))
 VERIFICATION_DATA_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
     "verification.json"
+)
+ADMIN_TOKENS_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "admin.json"
 )
 
 PREFIX = "On Shift | "
@@ -195,8 +199,17 @@ async def discord_callback_handler(request: web.Request) -> web.StreamResponse:
             status=403
         )
 
+    # Generate a new secure token and remove any existing token for this user
+    admin_tokens = load_admin_tokens()
+    # Remove old token(s) for this user_id
+    admin_tokens = {token: uid for token, uid in admin_tokens.items() if uid != user_id}
+    # Generate new token
+    new_token = generate_admin_token()
+    admin_tokens[new_token] = user_id
+    save_admin_tokens(admin_tokens)
+
     response = web.HTTPFound(location="/admin")
-    response.set_cookie("lasd_admin_auth", str(user_id), max_age=86400, secure=True, httponly=True, samesite="Lax")
+    response.set_cookie("lasd_admin_auth", new_token, max_age=86400, secure=True, httponly=True, samesite="Lax")
     return response
 
 
@@ -240,10 +253,10 @@ def get_oauth_login_url(request: web.Request = None) -> str:
 def get_auth_user_id(request: web.Request) -> int:
     auth_cookie = request.cookies.get("lasd_admin_auth")
     if auth_cookie:
-        try:
-            return int(auth_cookie)
-        except ValueError:
-            pass
+        admin_tokens = load_admin_tokens()
+        user_id = admin_tokens.get(auth_cookie)
+        if user_id is not None:
+            return user_id
     return 1422647977880584324
 
 
@@ -292,9 +305,11 @@ async def check_user_web_panel_auth(request: web.Request) -> bool:
     auth_cookie = request.cookies.get("lasd_admin_auth")
     if not auth_cookie:
         return False
-    try:
-        user_id = int(auth_cookie)
-    except ValueError:
+
+    # Validate token and get user_id
+    admin_tokens = load_admin_tokens()
+    user_id = admin_tokens.get(auth_cookie)
+    if user_id is None:
         return False
 
     if user_id in ALLOWED_USER_IDS:
@@ -740,8 +755,9 @@ async def api_citation_handler(request: web.Request) -> web.Response:
 
 
 async def api_units_handler(request: web.Request) -> web.Response:
+    admin_tokens = load_admin_tokens()
     auth_cookie = request.cookies.get("lasd_admin_auth")
-    if not auth_cookie:
+    if not auth_cookie or auth_cookie not in admin_tokens:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     guild = bot.get_guild(GUILD_ID)
@@ -776,12 +792,10 @@ async def api_units_handler(request: web.Request) -> web.Response:
 
 
 async def api_unit_status_handler(request: web.Request) -> web.Response:
+    user_id = get_auth_user_id(request)
+    admin_tokens = load_admin_tokens()
     auth_cookie = request.cookies.get("lasd_admin_auth")
-    if not auth_cookie:
-        return web.json_response({"error": "Unauthorized"}, status=401)
-    try:
-        user_id = int(auth_cookie)
-    except ValueError:
+    if not auth_cookie or auth_cookie not in admin_tokens:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
     if user_id not in active_shifts:
@@ -826,15 +840,17 @@ async def api_unit_status_handler(request: web.Request) -> web.Response:
 
 
 async def api_records_handler(request: web.Request) -> web.Response:
+    admin_tokens = load_admin_tokens()
     auth_cookie = request.cookies.get("lasd_admin_auth")
-    if not auth_cookie:
+    if not auth_cookie or auth_cookie not in admin_tokens:
         return web.json_response({"error": "Unauthorized"}, status=401)
     return web.json_response({"records": records_list})
 
 
 async def api_records_post_handler(request: web.Request) -> web.Response:
+    admin_tokens = load_admin_tokens()
     auth_cookie = request.cookies.get("lasd_admin_auth")
-    if not auth_cookie:
+    if not auth_cookie or auth_cookie not in admin_tokens:
         return web.json_response({"error": "Unauthorized"}, status=401)
     try:
         data = await request.json()
@@ -856,8 +872,9 @@ async def api_records_post_handler(request: web.Request) -> web.Response:
 
 
 async def api_records_delete_handler(request: web.Request) -> web.Response:
+    admin_tokens = load_admin_tokens()
     auth_cookie = request.cookies.get("lasd_admin_auth")
-    if not auth_cookie:
+    if not auth_cookie or auth_cookie not in admin_tokens:
         return web.json_response({"error": "Unauthorized"}, status=401)
     try:
         record_id = int(request.query.get('id', 0))
@@ -1251,6 +1268,54 @@ VERIFICATION_WORDS = [
 def generate_verification_code() -> str:
     """Generates four short random words for a Roblox bio verification code."""
     return " ".join(random.sample(VERIFICATION_WORDS, 4))
+
+
+def generate_admin_token() -> str:
+    """Generates a secure 15-30 character alphanumeric token for admin authentication."""
+    length = random.randint(15, 30)
+    chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    return "".join(random.choice(chars) for _ in range(length))
+
+
+def load_admin_tokens() -> dict:
+    """Loads admin tokens from JSON file."""
+    try:
+        with open(ADMIN_TOKENS_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("tokens", {})
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_admin_tokens(tokens: dict) -> bool:
+    """Saves admin tokens to JSON file atomically."""
+    data = {"tokens": tokens}
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=os.path.dirname(ADMIN_TOKENS_PATH),
+            prefix=".admin-",
+            suffix=".tmp",
+            delete=False
+        ) as temp_file:
+            temp_path = temp_file.name
+            json.dump(data, temp_file, indent=2, sort_keys=True)
+            temp_file.write("\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+
+        os.replace(temp_path, ADMIN_TOKENS_PATH)
+        return True
+    except (OSError, TypeError, ValueError) as error:
+        print(f"Error: Could not save admin tokens to {ADMIN_TOKENS_PATH}: {error}")
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+        return False
 
 
 def verification_embed(request: dict) -> discord.Embed:

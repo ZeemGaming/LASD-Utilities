@@ -24,6 +24,8 @@ router_settings:
   num_retries: 1
   cooldown_time: 3
   allowed_fails: 1
+  # Force LiteLLM to strip reasoning history logs during cross-provider hot-swaps
+  drop_params: true
   fallbacks:
     - claude-3-5-sonnet: ["openrouter-primary", "groq-backup"]
     - openrouter-primary: ["groq-backup"]

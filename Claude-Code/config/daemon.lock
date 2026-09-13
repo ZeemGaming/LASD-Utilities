@@ -1,16 +1,16 @@
 {
-  "pid": 1297,
-  "version": "2.1.269",
+  "pid": 401,
+  "version": "2.1.270",
   "jsonPath": "/home/runner/workspace/Claude-Code/config/daemon.json",
   "logPath": "/home/runner/workspace/Claude-Code/config/daemon.log",
-  "startedAt": 1789179298624,
+  "startedAt": 1789261829560,
   "origin": "transient",
   "spawnedBy": {
     "label": "claude",
     "cwd": "/home/runner/workspace",
-    "pid": 205
+    "pid": 259
   },
-  "procStart": "262084",
+  "procStart": "129597",
   "launchTarget": "/home/runner/workspace/.config/npm/node_global/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe",
   "processWrapper": ""
 }
