@@ -1,22 +1,2 @@
 [
-    {
-        "id": 1789176187447,
-        "type": "arrest",
-        "plate": "WEBTEST",
-        "vehicle": "Unknown",
-        "subject": "Mahfasa Ubiquitis",
-        "secondary": "Arrest Record",
-        "description": "Assault On A Peace Officer - Web test, but arrest! 99999999999999999 years in jail.",
-        "timestamp": 1789176187447.5208
-    },
-    {
-        "id": 1789175220392,
-        "type": "citation",
-        "plate": "ABC123",
-        "vehicle": "Unknown",
-        "subject": "John Doe",
-        "secondary": "Citation Record",
-        "description": "Fined $68,000,002 - Idk why. Womp womp.\r\nWeb test 3!!\r\nIt is working let's go!! (Court: Not scheduled)",
-        "timestamp": 1789175220392.7183
-    }
 ]
