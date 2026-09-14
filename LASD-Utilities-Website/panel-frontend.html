@@ -1214,8 +1214,10 @@
       updateUI();
       renderLogsFeed();
       fetchUserData();
+      fetchCadUnits();
       console.log("Initial data fetch called");
       setInterval(fetchUserData, 3000);
+      setInterval(fetchCadUnits, 3000);
 
       const STATUS_COLORS = {
         '10-7': 'bg-red-500 text-red-400 bg-red-600/20 border-red-500/30',
