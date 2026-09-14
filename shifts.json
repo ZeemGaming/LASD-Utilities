@@ -1,29 +1,2 @@
 {
-    "active": {
-        "1422647977880584324": {
-            "start_time": 1789176565.2233806,
-            "original_nick": "HR-278 AltAccountOfImaPlay",
-            "break_time": 0.0,
-            "on_break": false,
-            "break_start": 0.0,
-            "cad_status": "Panic",
-            "location": "Patrol Area 1",
-            "unit_number": "1-A-24"
-        },
-        "1086953696023294033": {
-            "start_time": 1789176883.8261595,
-            "original_nick": "DE-083 |tanqrthefans",
-            "break_time": 0.0,
-            "on_break": false,
-            "break_start": 0.0
-        }
-    },
-    "leaderboard": {
-        "1422647977880584324": 4.613886833190918,
-        "1340508513100894218": 165.11162185668945
-    },
-    "last": {
-        "1422647977880584324": 4.613886833190918,
-        "1340508513100894218": 165.11162185668945
-    }
 }
