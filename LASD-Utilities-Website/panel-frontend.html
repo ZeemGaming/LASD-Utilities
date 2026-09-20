@@ -101,6 +101,17 @@
               <span>☕</span><span id="main-break-text">Take Break</span>
             </button>
           </div>
+
+          <!-- Merit Points Display -->
+          <div class="mt-4 bg-gradient-to-r from-amber-600/20 to-yellow-500/10 border border-amber-500/30 rounded-xl p-4">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold text-amber-300 uppercase tracking-wider">MERIT POINTS</span>
+              <span id="merit-points" class="text-lg font-bold text-amber-400 font-mono">0 Պ</span>
+            </div>
+            <div class="text-[11px] text-amber-500/80">
+              Quota: <span class="font-semibold">$20 Պ</span> • Arrest: <span class="font-semibold">$10 Պ</span>
+            </div>
+          </div>
         </div>
 
         <!-- Toolbox Section -->
@@ -457,7 +468,8 @@
         avatar: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png",
         roles: ["Verified Staff"],
         shift: { active: false, on_break: false, start_time: null, break_time: 0.0, break_start: 0.0 },
-        quota: { seconds: 0.0, required: 5400, met: false }
+        quota: { seconds: 0.0, required: 5400, met: false },
+        merit: { points: 0 }
       };
       let currentLogType = 'arrest';
       let localSubmittedLogs = [];
@@ -491,6 +503,12 @@
         if (userAvatarEl && currentUser.avatar) userAvatarEl.src = currentUser.avatar;
         const userRoleEl = document.getElementById('user-role-text');
         if (userRoleEl) userRoleEl.textContent = (currentUser.roles && currentUser.roles.length > 0) ? currentUser.roles[0] : 'Verified Staff';
+
+        // Update Merit Points
+        const meritEl = document.getElementById('merit-points');
+        if (meritEl && currentUser.merit) {
+          meritEl.textContent = `${currentUser.merit.points.toLocaleString()} Պ`;
+        }
 
         const shift = currentUser.shift || { active: false, on_break: false };
         const dot = document.getElementById('shift-dot');
@@ -622,9 +640,11 @@
           });
           const resData = await res.json();
           if (res.ok) {
-            showNotification('Arrest record submitted to Discord successfully!', 'success');
+            const meritEarned = resData.merit_earned || 10;
+            showNotification(`Arrest record submitted to Discord successfully! +${meritEarned} Պ earned`, 'success');
             document.getElementById('arrest-form').reset();
             addLogItem({ type: 'Arrest', suspect, details: `${charges} (${details})`, time: 'Just now' });
+            await fetchUserData(); // Refresh merit points display
           } else {
             showNotification(resData.error || 'Failed to submit arrest log', 'error');
           }

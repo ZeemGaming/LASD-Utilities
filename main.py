@@ -21,6 +21,7 @@ ARREST_LOG_CHANNEL_ID = 1538076682441724001
 CITE_LOG_CHANNEL_ID = 1538076682441724002
 VERIFICATION_CHANNEL_ID = 1545124075989504170
 VERIFIED_ROLE_ID = 1545109313276878879
+MARKET_CHANNEL_ID = 1550934250256343141
 QUOTA_REQUIRED_SECONDS = 5400  # 1h 30m
 WEB_PORT = int(os.getenv("PORT", "5000"))
 VERIFICATION_DATA_PATH = os.path.join(
@@ -262,6 +263,7 @@ def get_auth_user_id(request: web.Request) -> int:
 
 SHIFTS_FILE = "shifts.json"
 RECORDS_FILE = "records.json"
+MERIT_POINTS_FILE = "Merit-Points.json"
 
 
 def save_shift_data():
@@ -300,6 +302,105 @@ def load_shift_data():
     else:
         records_list = []
         save_shift_data()
+
+
+def save_merit_points():
+    """Saves merit points data to JSON file."""
+    try:
+        with open(MERIT_POINTS_FILE, "w") as f:
+            json.dump({str(k): v for k, v in merit_points.items()}, f, indent=4)
+    except Exception as e:
+        print(f"Error saving merit points: {e}")
+
+
+def load_merit_points():
+    """Loads merit points data from JSON file."""
+    global merit_points
+    if os.path.exists(MERIT_POINTS_FILE):
+        try:
+            with open(MERIT_POINTS_FILE, "r") as f:
+                data = json.load(f)
+                merit_points = {int(k): v for k, v in data.items()}
+        except Exception as e:
+            print(f"Error loading merit points: {e}")
+    else:
+        merit_points = {}
+        save_merit_points()
+
+
+def add_merit_points(user_id: int, amount: int, source: str = "Unknown", description: str = "") -> int:
+    """Add merit points to a user. Returns new total."""
+    global merit_points, merit_transactions
+    merit_points[user_id] = merit_points.get(user_id, 0) + amount
+    save_merit_points()
+
+    # Log transaction
+    if user_id not in merit_transactions:
+        merit_transactions[user_id] = []
+    merit_transactions[user_id].append({
+        "amount": amount,
+        "source": source,
+        "description": description,
+        "timestamp": int(time.time())
+    })
+    save_merit_transactions()
+    return merit_points[user_id]
+
+
+def remove_merit_points(user_id: int, amount: int, source: str = "Admin", description: str = "") -> int:
+    """Remove merit points from a user. Returns new total (min 0)."""
+    global merit_points, merit_transactions
+    current = merit_points.get(user_id, 0)
+    merit_points[user_id] = max(0, current - amount)
+    save_merit_points()
+
+    # Log transaction
+    if user_id not in merit_transactions:
+        merit_transactions[user_id] = []
+    merit_transactions[user_id].append({
+        "amount": -amount,
+        "source": source,
+        "description": description,
+        "timestamp": int(time.time())
+    })
+    save_merit_transactions()
+    return merit_points[user_id]
+
+
+def get_merit_points(user_id: int) -> int:
+    """Get a user's merit points."""
+    return merit_points.get(user_id, 0)
+
+
+def get_merit_transactions(user_id: int) -> list:
+    """Get a user's merit point transaction history."""
+    return merit_transactions.get(user_id, [])
+
+
+def save_merit_transactions():
+    """Saves merit transactions data to JSON file."""
+    try:
+        with open(MERIT_POINTS_FILE + ".transactions", "w") as f:
+            json.dump({str(k): v for k, v in merit_transactions.items()}, f, indent=4)
+    except Exception as e:
+        print(f"Error saving merit transactions: {e}")
+
+
+def load_merit_transactions():
+    """Loads merit transactions data from JSON file."""
+    global merit_transactions
+    transactions_file = MERIT_POINTS_FILE + ".transactions"
+    if os.path.exists(transactions_file):
+        try:
+            with open(transactions_file, "r") as f:
+                data = json.load(f)
+                merit_transactions = {int(k): v for k, v in data.items()}
+        except Exception as e:
+            print(f"Error loading merit transactions: {e}")
+    else:
+        merit_transactions = {}
+        save_merit_transactions()
+
 
 async def check_user_web_panel_auth(request: web.Request) -> bool:
     auth_cookie = request.cookies.get("lasd_admin_auth")
@@ -429,13 +530,18 @@ async def api_user_handler(request: web.Request) -> web.Response:
         "met": total_secs >= QUOTA_REQUIRED_SECONDS
     }
 
+    merit_info = {
+        "points": merit_points.get(user_id, 0)
+    }
+
     return web.json_response({
         "id": user_id,
         "username": username,
         "avatar": avatar,
         "roles": roles,
         "shift": shift_info,
-        "quota": quota_info
+        "quota": quota_info,
+        "merit": merit_info
     })
 
 async def api_shift_start_handler(request: web.Request) -> web.Response:
@@ -643,7 +749,10 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
     records_list.insert(0, new_record)
     save_shift_data()
 
-    return web.json_response({"success": True})
+    # Award $10 merit points for arrest
+    add_merit_points(user_id, 10, source="Arrest", description="Arrest log submitted via web panel")
+
+    return web.json_response({"success": True, "merit_earned": 10})
 
 async def api_citation_handler(request: web.Request) -> web.Response:
     user_id = get_auth_user_id(request)
@@ -933,6 +1042,12 @@ last_shifts = {}
 # User strikes database: { user_id: [ { "case_id": str, "moderator_id": int, "reason": str, "timestamp": int } ] }
 user_strikes = {}
 
+# Merit points currency: { user_id: int }
+merit_points = {}
+
+# Merit points transaction history: { user_id: [ { "amount": int, "source": str, "description": str, "timestamp": int } ] }
+merit_transactions = {}
+
 # Date of the most recent Saturday quota reset, persisted with shift data
 last_quota_reset_date = None
 
@@ -943,6 +1058,10 @@ shift_farming_alerted = set()
 verification_message_id = None
 pending_verifications = {}
 verification_views_registered = False
+
+# Market/Shop message
+market_message_id = None
+market_views_registered = False
 
 
 def save_verification_data() -> bool:
@@ -1075,6 +1194,35 @@ def parse_time_string(time_str: str) -> float:
         total_seconds = (hours * 3600) + (minutes * 60) + seconds
 
     return total_seconds
+
+
+def parse_money_string(money_str: str) -> int:
+    """Parses money strings like '5', '20', '1k', '10k', '1m', '1b', '1t' (k=thousand, m=million, b=billion, t=trillion)."""
+    if not money_str:
+        return 0
+    money_str = money_str.lower().strip()
+
+    multipliers = {
+        'k': 1_000,
+        'm': 1_000_000,
+        'b': 1_000_000_000,
+        't': 1_000_000_000_000
+    }
+
+    # Check for suffix
+    for suffix, multiplier in multipliers.items():
+        if money_str.endswith(suffix):
+            try:
+                num = float(money_str[:-1])
+                return int(num * multiplier)
+            except ValueError:
+                return 0
+
+    # Plain number
+    try:
+        return int(float(money_str))
+    except ValueError:
+        return 0
 
 
 def has_web_panel_role(interaction: discord.Interaction) -> bool:
@@ -1231,15 +1379,25 @@ async def weekly_quota_reset():
                 channel = guild.get_channel(QUOTA_LOG_CHANNEL_ID)
                 if channel:
                     failed_users = []
+                    passed_users = []
                     for uid, total_secs in shift_leaderboard_data.items():
                         if total_secs < QUOTA_REQUIRED_SECONDS:
                             failed_users.append(f"• <@{uid}> (`{uid}`) — `{format_duration(total_secs)}` / `02h 00m 00s`")
+                        else:
+                            passed_users.append(uid)
+
+                    # Award $20 merit points to users who met quota
+                    for uid in passed_users:
+                        add_merit_points(uid, 20, source="Quota Bonus", description="Weekly shift quota met (≥1h30m)")
 
                     report_text = "**Weekly Quota Summary Report (Saturday Reset - CST)**\n\n"
                     if failed_users:
                         report_text += "The following staff members did not meet the 2-hour minimum shift quota this week:\n\n" + "\n".join(failed_users)
                     else:
                         report_text += "All active staff members successfully met their 2-hour quota this week! 🎉"
+
+                    if passed_users:
+                        report_text += "\n\n**Quota Bonus:** The following users earned **$20 Պ** for meeting quota:\n" + "\n".join(f"• <@{uid}>" for uid in passed_users)
 
                     embed = discord.Embed(
                         title="📅 End of Week Quota Report",
@@ -1620,6 +1778,232 @@ def register_verification_views() -> None:
     verification_views_registered = True
 
 
+# --- MARKET / SHOP SYSTEM ---
+
+MARKET_ITEMS = [
+    {
+        "id": "undercover_privilege",
+        "name": "Undercover Privilege",
+        "price": 150,
+        "description": "Since LRs are strictly locked to the basic livery, buying this pass gives an LR or MR temporary permission (for 1 week) to use the Undercover livery."
+    },
+    {
+        "id": "high_speed_pass",
+        "name": "High Speed Vehicle Pass",
+        "price": 100,
+        "description": "This grants an LR or MR permission (for one week) to pull out the high speed vehicles (like sports cars) for their patrol shift even if those cars are normally locked behind higher ranks or specific traffic subdivisions."
+    },
+    {
+        "id": "fast_pass",
+        "name": "Fast Pass",
+        "price": 200,
+        "description": "This is the perfect bridge for people outside of LASD who have accumulated credits. Buying this allows a civilian to instantly skip the training waitlist, jump straight into the next scheduled academy, and fast-track their way to becoming an official Deputy."
+    },
+    {
+        "id": "honorary_command_staff",
+        "name": "Honorary Command Staff Rank (Permanent)",
+        "price": 500,
+        "description": "A Discord role called the Sheriff's Advisory Council. It sits high on the member list, giving veteran players or highly active outsiders massive status without giving them actual HR powers. (You may be consulted though!)"
+    },
+    {
+        "id": "vip_chat_color",
+        "name": "VIP Chat Color (Yellow Role)",
+        "price": 50,
+        "description": "Gives the user a custom, distinct yellow role on the Discord active users list. It's clean, and looks great on the sidebar."
+    }
+]
+
+market_message_id = None
+market_views_registered = False
+
+
+def market_embed() -> discord.Embed:
+    """Builds the market/shop embed."""
+    embed = discord.Embed(
+        title="🛒 LASD Merit Points Market",
+        description=(
+            "Buy items here using your Merit Points (Պ).\n\n"
+            "**How to Buy:** Click a button below to purchase an item. "
+            "You'll be prompted to confirm your purchase."
+        ),
+        color=discord.Color.gold()
+    )
+
+    for item in MARKET_ITEMS:
+        embed.add_field(
+            name=f"{item['name']} — **${item['price']} Պ**",
+            value=item['description'],
+            inline=False
+        )
+
+    embed.set_footer(text="Made by zeemonyt • LASD Utilities")
+    return embed
+
+
+class MarketBuyView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+        for item in MARKET_ITEMS:
+            button = discord.ui.Button(
+                label=f"Buy {item['name']} — ${item['price']} Պ",
+                style=discord.ButtonStyle.primary,
+                custom_id=f"market:buy:{item['id']}"
+            )
+            button.callback = self.create_buy_callback(item)
+            self.add_item(button)
+
+    def create_buy_callback(self, item):
+        async def callback(interaction: discord.Interaction):
+            # Check user's merit points
+            user_points = get_merit_points(interaction.user.id)
+
+            if user_points < item['price']:
+                await interaction.response.send_message(
+                    f"❌ You don't have enough Merit Points! You have **{user_points:,} Պ**, but **{item['name']}** costs **{item['price']:,} Պ**.",
+                    ephemeral=True
+                )
+                return
+
+            # Create confirmation view
+            confirm_view = MarketConfirmView(item)
+            embed = discord.Embed(
+                title=f"Confirm Purchase: {item['name']}",
+                description=(
+                    f"**Item:** {item['name']}\n"
+                    f"**Price:** {item['price']:,} Պ\n"
+                    f"**Your Balance:** {user_points:,} Պ\n"
+                    f"**Remaining After Purchase:** {user_points - item['price']:,} Պ\n\n"
+                    f"{item['description']}\n\n"
+                    "Are you sure you want to purchase this item?"
+                ),
+                color=discord.Color.gold()
+            )
+            await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+        return callback
+
+
+class MarketConfirmView(discord.ui.View):
+    def __init__(self, item: dict):
+        super().__init__(timeout=60)
+        self.item = item
+
+        confirm_button = discord.ui.Button(
+            label="✅ Confirm Purchase",
+            style=discord.ButtonStyle.success,
+            custom_id=f"market:confirm:{item['id']}"
+        )
+        confirm_button.callback = self.confirm_purchase
+        self.add_item(confirm_button)
+
+        cancel_button = discord.ui.Button(
+            label="❌ Cancel",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"market:cancel:{item['id']}"
+        )
+        cancel_button.callback = self.cancel_purchase
+        self.add_item(cancel_button)
+
+    async def confirm_purchase(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        user_points = get_merit_points(user_id)
+
+        if user_points < self.item['price']:
+            await interaction.response.edit_message(
+                content=f"❌ You don't have enough Merit Points! You have **{user_points:,} Պ**, but this costs **{self.item['price']:,} Պ**.",
+                embed=None,
+                view=None
+            )
+            return
+
+        # Deduct points
+        new_balance = remove_merit_points(user_id, self.item['price'], source="Market Purchase", description=f"Purchased: {self.item['name']}")
+
+        # Send confirmation
+        embed = discord.Embed(
+            title="✅ Purchase Successful!",
+            description=(
+                f"You bought **{self.item['name']}** for **{self.item['price']:,} Պ**!\n\n"
+                f"**New Balance:** {new_balance:,} Պ\n\n"
+                f"**Item Details:**\n{self.item['description']}\n\n"
+                "An administrator has been notified to fulfill your purchase."
+            ),
+            color=discord.Color.green()
+        )
+        embed.set_footer(text="Made by zeemonyt • LASD Utilities")
+        await interaction.response.edit_message(embed=embed, view=None)
+
+        # Notify admins (log to strike channel or a specific channel)
+        guild = interaction.guild
+        if guild:
+            log_channel = guild.get_channel(STRIKE_LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="🛒 Market Purchase",
+                    description=(
+                        f"**Buyer:** {interaction.user.mention} (`{user_id}`)\n"
+                        f"**Item:** {self.item['name']}\n"
+                        f"**Price:** {self.item['price']:,} Պ\n"
+                        f"**New Balance:** {new_balance:,} Պ"
+                    ),
+                    color=discord.Color.gold()
+                )
+                log_embed.set_footer(text="Made by zeemonyt")
+                try:
+                    await log_channel.send(embed=log_embed)
+                except discord.Forbidden:
+                    pass
+
+    async def cancel_purchase(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(
+            content="❌ Purchase cancelled.",
+            embed=None,
+            view=None
+        )
+
+
+def register_market_views() -> None:
+    """Registers persistent market button handlers after the bot connects."""
+    global market_views_registered
+    if market_views_registered:
+        return
+
+    bot.add_view(MarketBuyView())
+    market_views_registered = True
+
+
+async def ensure_market_message() -> None:
+    """Ensures the market message is sent only once."""
+    global market_message_id
+
+    channel = bot.get_channel(MARKET_CHANNEL_ID)
+    if not channel:
+        try:
+            channel = await bot.fetch_channel(MARKET_CHANNEL_ID)
+        except discord.NotFound:
+            print(f"Error: Market channel {MARKET_CHANNEL_ID} was not found.")
+            return
+        except discord.Forbidden:
+            print(f"Error: Discord denied access to market channel {MARKET_CHANNEL_ID}.")
+            return
+        except discord.HTTPException as error:
+            print(f"Error: Could not access market channel {MARKET_CHANNEL_ID} (HTTP {error.status}).")
+            return
+
+    # Check if message already exists (we could persist the ID, but for now just send new)
+    try:
+        message = await channel.send(
+            embed=market_embed(),
+            view=MarketBuyView(),
+            allowed_mentions=discord.AllowedMentions.none()
+        )
+        market_message_id = message.id
+        print(f"Created market message {message.id} in channel {MARKET_CHANNEL_ID}.")
+    except (discord.Forbidden, discord.HTTPException) as error:
+        print(f"Error: Could not send the market message: {error}")
+        return
+
+
 async def ensure_verification_message() -> None:
     """Ensures the public verification message is sent only once."""
     global verification_message_id
@@ -1684,12 +2068,15 @@ async def on_connect():
 @bot.event
 async def on_ready():
     load_shift_data()
+    load_merit_points()
+    load_merit_transactions()
     print(f"[BOT LOG] Logged in as {bot.user} (ID: {bot.user.id}), ready={bot.is_ready()}, guilds={[g.name for g in bot.guilds]}")
 
     if not weekly_quota_reset.is_running():
         weekly_quota_reset.start()
 
     register_verification_views()
+    register_market_views()
 
     try:
         if GUILD_ID:
@@ -1704,6 +2091,7 @@ async def on_ready():
         print(f"[BOT LOG] Error syncing slash commands: {e}")
 
     await ensure_verification_message()
+    await ensure_market_message()
 
 
 @bot.event
@@ -2124,6 +2512,334 @@ async def shift_leaderboard(interaction: discord.Interaction):
     embed.set_footer(text="Made by zeemonyt")
 
     await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="money-leaderboard", description="View the merit points leaderboard.")
+async def money_leaderboard(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use this command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    if not merit_points:
+        embed = discord.Embed(
+            title="Merit Points Leaderboard",
+            description="No merit points data yet.",
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed)
+        return
+
+    sorted_staff = sorted(merit_points.items(), key=lambda item: item[1], reverse=True)
+
+    leaderboard_text = ""
+    for index, (uid, points) in enumerate(sorted_staff[:15], start=1):
+        leaderboard_text += f"**{index}.** <@{uid}> — `{points:,}` Պ\n"
+
+    # Find requester's rank
+    requester_id = interaction.user.id
+    requester_rank = None
+    requester_points = merit_points.get(requester_id, 0)
+    for index, (uid, _) in enumerate(sorted_staff, start=1):
+        if uid == requester_id:
+            requester_rank = index
+            break
+
+    embed = discord.Embed(
+        title="Merit Points Leaderboard",
+        description=leaderboard_text,
+        color=discord.Color.gold()
+    )
+
+    if requester_rank:
+        embed.add_field(
+            name="Your Rank",
+            value=f"**#{requester_rank}** — `{requester_points:,}` Պ",
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Your Rank",
+            value=f"Unranked — `0` Պ",
+            inline=False
+        )
+
+    embed.set_footer(text="Made by zeemonyt")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="money", description="View your merit points balance and transaction history.")
+async def money_command(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use this command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    user_id = interaction.user.id
+    balance = merit_points.get(user_id, 0)
+    transactions = get_merit_transactions(user_id)
+
+    # Group transactions by source
+    source_totals = {}
+    for tx in transactions:
+        src = tx.get("source", "Unknown")
+        if src not in source_totals:
+            source_totals[src] = 0
+        source_totals[src] += tx["amount"]
+
+    # Build embed
+    embed = discord.Embed(
+        title="💰 Your Merit Points",
+        description=f"**Current Balance:** `{balance:,} Պ`",
+        color=discord.Color.gold()
+    )
+
+    if source_totals:
+        source_text = ""
+        for source, total in sorted(source_totals.items(), key=lambda x: x[1], reverse=True):
+            source_text += f"• **{source}:** `{total:+,} Պ`\n"
+        embed.add_field(name="Earnings by Source", value=source_text, inline=False)
+
+    # Show recent transactions (last 10)
+    if transactions:
+        recent_tx = transactions[-10:]
+        tx_text = ""
+        for tx in reversed(recent_tx):
+            amount = tx["amount"]
+            source = tx.get("source", "Unknown")
+            desc = tx.get("description", "")
+            timestamp = tx.get("timestamp", 0)
+            time_str = f"<t:{timestamp}:R>"
+            sign = "+" if amount > 0 else ""
+            tx_text += f"`{sign}{amount:,} Պ` — **{source}** ({desc}) {time_str}\n"
+        embed.add_field(name="Recent Transactions", value=tx_text, inline=False)
+    else:
+        embed.add_field(name="Recent Transactions", value="No transactions yet.", inline=False)
+
+    embed.set_footer(text="Made by zeemonyt")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="money-items", description="View all available market items (ephemeral).")
+async def money_items_command(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use this command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    market_url = "https://discord.com/channels/1538076681565241384/1549878344391069716"
+    await interaction.response.send_message(
+        f"🛒 **Market Items:** View all available items here: {market_url}",
+        ephemeral=True
+    )
+
+
+@bot.tree.command(name="market", description="Send the market/shop message to the market channel.")
+@app_commands.describe(
+    channel="Optional: Channel to send the market message to (defaults to configured market channel)"
+)
+async def market_command(
+    interaction: discord.Interaction,
+    channel: discord.TextChannel = None
+):
+    if not is_admin(interaction):
+        embed = discord.Embed(
+            title="Permission Denied",
+            description="You do not have permission to use this command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    target_channel = channel or bot.get_channel(MARKET_CHANNEL_ID)
+    if not target_channel:
+        try:
+            target_channel = await bot.fetch_channel(MARKET_CHANNEL_ID)
+        except Exception:
+            embed = discord.Embed(
+                title="Error",
+                description="Could not find the market channel.",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+    try:
+        message = await target_channel.send(
+            embed=market_embed(),
+            view=MarketBuyView(),
+            allowed_mentions=discord.AllowedMentions.none()
+        )
+        global market_message_id
+        market_message_id = message.id
+        embed = discord.Embed(
+            title="✅ Market Message Sent",
+            description=f"Market message sent to {target_channel.mention}.",
+            color=discord.Color.green()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+    except Exception as e:
+        embed = discord.Embed(
+            title="Error",
+            description=f"Failed to send market message: {e}",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="money-admin", description="Admin override commands for managing merit points.")
+@app_commands.describe(
+    user="The target staff member",
+    option="Select an administrative action",
+    amount="Optional: Amount to add/remove (e.g. 5, 20, 1k, 10k, 1m, 1b, 1t)"
+)
+@app_commands.choices(option=[
+    app_commands.Choice(name="Add Money", value="add"),
+    app_commands.Choice(name="Remove Money", value="remove"),
+    app_commands.Choice(name="Clear All Money", value="clear_all"),
+    app_commands.Choice(name="Set Money", value="set")
+])
+async def money_admin(
+    interaction: discord.Interaction,
+    user: discord.Member,
+    option: app_commands.Choice[str],
+    amount: str = None
+):
+    if not is_admin(interaction):
+        embed = discord.Embed(
+            title="Permission Denied",
+            description="You do not have permission to use this command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    target_id = user.id
+    action = option.value
+
+    if action in ["add", "remove", "set"]:
+        if not amount:
+            embed = discord.Embed(
+                title="Error",
+                description="Please provide an amount (e.g. `5`, `20`, `1k`, `10k`, `1m`, `1b`, `1t`).",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+        parsed_amount = parse_money_string(amount)
+        if parsed_amount <= 0:
+            embed = discord.Embed(
+                title="Error",
+                description="Invalid amount format. Use formats like `5`, `20`, `1k`, `10k`, `1m`, `1b`, `1t`.",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+    if action == "add":
+        new_total = add_merit_points(target_id, parsed_amount, source="Admin", description=f"Added by {interaction.user.display_name}")
+
+        embed = discord.Embed(
+            title="Admin Action: Money Added",
+            description=(
+                f"Added **{parsed_amount:,} Պ** to {user.mention}'s balance.\n"
+                f"**New Balance:** {new_total:,} Պ"
+            ),
+            color=discord.Color.green()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed)
+
+    elif action == "remove":
+        new_total = remove_merit_points(target_id, parsed_amount, source="Admin", description=f"Removed by {interaction.user.display_name}")
+
+        embed = discord.Embed(
+            title="Admin Action: Money Removed",
+            description=(
+                f"Removed **{parsed_amount:,} Պ** from {user.mention}'s balance.\n"
+                f"**New Balance:** {new_total:,} Պ"
+            ),
+            color=discord.Color.dark_red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed)
+
+    elif action == "set":
+        current = merit_points.get(target_id, 0)
+        diff = parsed_amount - current
+        merit_points[target_id] = parsed_amount
+        save_merit_points()
+
+        # Log transaction
+        if target_id not in merit_transactions:
+            merit_transactions[target_id] = []
+        merit_transactions[target_id].append({
+            "amount": diff,
+            "source": "Admin",
+            "description": f"Set to {parsed_amount} by {interaction.user.display_name}",
+            "timestamp": int(time.time())
+        })
+        save_merit_transactions()
+
+        embed = discord.Embed(
+            title="Admin Action: Money Set",
+            description=(
+                f"Set {user.mention}'s balance to **{parsed_amount:,} Պ**.\n"
+                f"**Previous Balance:** {current:,} Պ"
+            ),
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed)
+
+    elif action == "clear_all":
+        current = merit_points.get(target_id, 0)
+        if current > 0:
+            merit_points.pop(target_id, None)
+            save_merit_points()
+
+            # Log transaction
+            if target_id not in merit_transactions:
+                merit_transactions[target_id] = []
+            merit_transactions[target_id].append({
+                "amount": -current,
+                "source": "Admin",
+                "description": f"Cleared by {interaction.user.display_name}",
+                "timestamp": int(time.time())
+            })
+            save_merit_transactions()
+
+        embed = discord.Embed(
+            title="Admin Action: All Money Cleared",
+            description=f"Cleared all merit points for {user.mention}.",
+            color=discord.Color.dark_red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="shift-admin", description="Admin override commands for managing staff shifts.")
@@ -2789,9 +3505,12 @@ async def arrest(
         })
         save_shift_data()
 
+    # Award $10 merit points for arrest
+    add_merit_points(interaction.user.id, 10, source="Arrest", description="Arrest log submitted via /arrest command")
+
     embed = discord.Embed(
         title="Arrest Successfully Logged",
-        description=f"Logged arrest for Roblox user **{user}** in <#{ARREST_LOG_CHANNEL_ID}>.",
+        description=f"Logged arrest for Roblox user **{user}** in <#{ARREST_LOG_CHANNEL_ID}>.\n**+10 Պ** earned!",
         color=discord.Color.green()
     )
     embed.set_footer(text="Made by zeemonyt")

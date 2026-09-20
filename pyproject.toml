@@ -1,7 +1,7 @@
 [project]
 name = "LASD-Utilities"
-version = "1.6"
-description = "This is for the GLARP I LASD server! Join here at this link: discord.gg/B6c6DhFFhS"
+version = "1.8"
+description = "This is for the GLARP I LASD server! This is private code, and join codes will be at README.md. Have fun!"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp",
