@@ -1,24 +1,68 @@
-TR (Training Rank)- LASD | Deputy In Training -Role ID: 1538076681628028951
+Lowest to highest, read from bottom to top.
+Or highest to lowest, just make the arrows go down.
 
-LR (Low Rank):
-LASD | Cadet -Role ID: 1538076681628028950
-LASD | Deputy -Role ID: 1538076681628028952
-LASD | Senior Deputy -Role ID: 1538076681628028953
+<@&1539431991080910899> (Main Server's Ownership)
+⬆️ 
+<@&1538076681640747136> (Highest LASD Rank - @LASD・Overseer)
+⬆️ 
+<@&1538076681640747135> (@LASD・High Ranking Team)
+⬆️ 
+<@&1538076681640747128> (@LASD・Department Head)
 
-MR (Middle Rank):
-LASD | Supervisor -Role ID: 1538076681628028956
-LASD | Master Deputy -Role ID: 1538076681628028955
-LASD | Sergeant -Role ID: 1538076681628028957
-LASD | Lieutenant -Role ID: 1538076681632219216
+SHR ⬆️ 
+--------------------------
 
-HR (High Rank):
-LASD | Captain -Role ID: 1538076681640747130
-LASD | Chief Deputy -Role ID: 1538076681640747131
-LASD | Chief -Role ID: 1539413609388712006
-LASD | Undersheriff -Role ID: 1538076681640747132
-LASD | Sheriff -Role ID: 1538076681640747133
+<@&1538076681640747133> (@𝙇𝘼𝙎𝘿 ↪️ 𝙎𝙝𝙚𝙧𝙞𝙛𝙛)
+⬆️ 
+<@&1538076681640747132> (@𝙇𝘼𝙎𝘿 ↪️ 𝙐𝙣𝙙𝙚𝙧𝙨𝙝𝙚𝙧𝙞𝙛𝙛)
+⬆️ 
+<@&1539413609388712006> (@𝙇𝘼𝙎𝘿 ↪️ Chief)
+⬆️ 
+<@&1538076681640747131> (@𝙇𝘼𝙎𝘿 ↪️ Chief Deputy)
+⬆️ 
+<@&1550735626460995636> (@𝙇𝘼𝙎𝘿 ↪️ Assistant Chief)
+⬆️ 
+<@&1550735900596506644> (@𝙇𝘼𝙎𝘿 ↪️ Captain)
+⬆️ 
+<@&1538076681640747130> (@𝙇𝘼𝙎𝘿 ↪️ Deputy Captain)
 
-SHR (Super High Rank):
-LASD | High Ranking Team -Role ID: 1538076681640747135
-(Note: Owner of LASD) LASD | Overseer -Role ID: 1538076681640747136
-(Note: Owner of Main Server) GLARP | Ownership -Role ID: 1539431991080910899
+HR ⬆️
+--------------------------
+
+<@&1550736797385101424> (@𝙇𝘼𝙎𝘿 ↪️ Commander)
+⬆️ 
+<@&1550737209466818570> (@𝙇𝘼𝙎𝘿 ↪️Staff Lieutenant)
+⬆️ 
+<@&1538076681632219216> (@𝙇𝘼𝙎𝘿 ↪️ Lieutenant)
+⬆️ 
+<@&1550737321991606362> (@𝙇𝘼𝙎𝘿 ↪️First Lieutenant)
+⬆️ 
+<@&1550736797695479840> (@𝙇𝘼𝙎𝘿 ↪️ Major)
+⬆️ 
+<@&1550737452056973332> (@𝙇𝘼𝙎𝘿 ↪️ Sergeant Major)
+⬆️ 
+<@&1538076681628028957> (@𝙇𝘼𝙎𝘿 ↪️ Sergeant)
+⬆️ 
+<@&1538076681628028955> (@𝙇𝘼𝙎𝘿 ↪️ Master Deputy)
+⬆️ 
+<@&1550738579016253461> (@𝙇𝘼𝙎𝘿 ↪️ Senior Supervisor)
+⬆️ 
+<@&1538076681628028956> (@𝙇𝘼𝙎𝘿 ↪️ Supervisor)
+⬆️ 
+<@&1550738587278909531> (@𝙇𝘼𝙎𝘿 ↪️ Senior Field Training Officer)
+
+MR ⬆️
+--------------------------
+
+<@&1550738620669894727> (@𝙇𝘼𝙎𝘿 ↪️ Field Training Officer)
+⬆️ 
+<@&1550738623534596156> (@𝙇𝘼𝙎𝘿 ↪️Deputy First class)
+⬆️ 
+<@&1538076681628028953> (@𝙇𝘼𝙎𝘿 ↪️ Senior Deputy)
+⬆️ 
+<@&1538076681628028952> (@𝙇𝘼𝙎𝘿 ↪️ Deputy)
+⬆️ 
+<@&1550738635706601482> (@𝙇𝘼𝙎𝘿 ↪️ Junior Deputy)
+
+LR ⬆️ 
+--------------------------

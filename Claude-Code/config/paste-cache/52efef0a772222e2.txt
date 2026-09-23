@@ -1,0 +1,19 @@
+Please make the following commands.
+
+/shift-active 
+Shows current members that are active
+
+/shift
+Shows a embed where if they are on shift, on break, or off shift, with the corresponding buttons (start shift/start break/stop shift) at the bottom.
+
+
+/shift-choose [Choose options; Start, End, Break, Active, Leaderboard, Active, See]
+Basically a all-in-one command that people can use.
+
+(Note that this is @unverified: <@&1545126033433559140>)
+/unverified-purge [How much time to purge, 0s means now] [How much time to DM? 0s means now]
+HR+ only, make sure it ignores people who have unverifed **but also has verified** (verified = <@&1545109313276878879>, DM will DM this: "Hello, this is the GLARP I LASD bot! This is a reminder that you will be kicked from LASD as you are not verified. Verify in https://discord.com/channels/1538076681565241384/1545124075989504170" (HR in QuickRanks.txt)
+
+(Note that this is also similar to unverified purge, but for trainees that have not ranked up recently. The rank is this for Requires Training, <@&1538076681607192664> and this for RA (Ride Along) <@1538076681607192663>
+/untrained-purge [How many time to purge (ex, input could be 12h or 15m 2s) 0s means now] [Purge RA people or purge Requires Training people] [How many time till' DM? 0 seconds = now] 
+HR+ only, make sure it ignores people who have unverifed but also has verified, DM will DM this: "Hello, this is the GLARP I LASD bot! This is a reminder that you will be kicked from LASD as you are not trained currently. You have _ time to get trained. Request a training in https://discord.com/channels/1538076681565241384/1538076682894843966" (HR in QuickRanks.txt)

@@ -4,10 +4,11 @@
     "frontend-design@claude-plugins-official": [
       {
         "scope": "user",
-        "installPath": "/home/runner/workspace/Claude-Code/config/plugins/cache/claude-plugins-official/frontend-design/c447c3207a42",
-        "version": "c447c3207a42",
+        "installPath": "/home/runner/workspace/Claude-Code/config/plugins/cache/claude-plugins-official/frontend-design/db467cc56673",
+        "version": "db467cc56673",
         "installedAt": "2026-09-11T22:58:15.103Z",
-        "lastUpdated": "2026-09-19T00:07:06.158Z"
+        "lastUpdated": "2026-09-23T13:36:55.800Z",
+        "gitCommitSha": "db467cc56673fc963ca418b4165c688dfbe77007"
       }
     ]
   }

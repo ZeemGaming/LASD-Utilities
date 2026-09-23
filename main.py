@@ -21,7 +21,13 @@ ARREST_LOG_CHANNEL_ID = 1538076682441724001
 CITE_LOG_CHANNEL_ID = 1538076682441724002
 VERIFICATION_CHANNEL_ID = 1545124075989504170
 VERIFIED_ROLE_ID = 1545109313276878879
-MARKET_CHANNEL_ID = 1550934250256343141
+MARKET_CHANNEL_ID = 1549878344391069716
+MARKET_LOG_CHANNEL_ID = 1550934250256343141
+FAST_PASS_LOG_CHANNEL_ID = 1551079632621535232
+UNVERIFIED_ROLE_ID = 1545126033433559140
+REQUIRES_TRAINING_ROLE_ID = 1538076681607192664
+RA_ROLE_ID = 1538076681607192663
+TRAINING_REQUEST_CHANNEL_ID = 1538076682894843966
 QUOTA_REQUIRED_SECONDS = 5400  # 1h 30m
 WEB_PORT = int(os.getenv("PORT", "5000"))
 VERIFICATION_DATA_PATH = os.path.join(
@@ -1063,6 +1069,9 @@ verification_views_registered = False
 market_message_id = None
 market_views_registered = False
 
+# Steal cooldowns: { user_id: timestamp of last steal attempt }
+steal_cooldowns = {}
+
 
 def save_verification_data() -> bool:
     """Persist the verification message ID, last quota reset date, and any in-progress requests atomically."""
@@ -1780,36 +1789,62 @@ def register_verification_views() -> None:
 
 # --- MARKET / SHOP SYSTEM ---
 
+# Role IDs for automatic role assignment on purchase
+MARKET_ROLE_IDS = {
+    "undercover_privilege": 1550683794841804800,      # 1 week
+    "high_speed_pass": 1550683906888695889,           # 1 week
+    "honorary_command_staff": 1550685863212617758,    # permanent
+    "vip_chat_color": 1550684278378201259,            # permanent
+}
+
+# Duration in seconds (0 = permanent)
+MARKET_ROLE_DURATIONS = {
+    "undercover_privilege": 7 * 24 * 60 * 60,   # 1 week
+    "high_speed_pass": 7 * 24 * 60 * 60,        # 1 week
+    "honorary_command_staff": 0,                # permanent
+    "vip_chat_color": 0,                        # permanent
+}
+
 MARKET_ITEMS = [
     {
         "id": "undercover_privilege",
         "name": "Undercover Privilege",
         "price": 150,
-        "description": "Since LRs are strictly locked to the basic livery, buying this pass gives an LR or MR temporary permission (for 1 week) to use the Undercover livery."
+        "description": "Since LRs are strictly locked to the basic livery, buying this pass gives an LR or MR temporary permission (for 1 week) to use the Undercover livery.",
+        "role_id": 1550683794841804800,
+        "duration": "1 week"
     },
     {
         "id": "high_speed_pass",
         "name": "High Speed Vehicle Pass",
         "price": 100,
-        "description": "This grants an LR or MR permission (for one week) to pull out the high speed vehicles (like sports cars) for their patrol shift even if those cars are normally locked behind higher ranks or specific traffic subdivisions."
+        "description": "This grants an LR or MR permission (for one week) to pull out the high speed vehicles (like sports cars) for their patrol shift even if those cars are normally locked behind higher ranks or specific traffic subdivisions.",
+        "role_id": 1550683906888695889,
+        "duration": "1 week"
     },
     {
         "id": "fast_pass",
         "name": "Fast Pass",
         "price": 200,
-        "description": "This is the perfect bridge for people outside of LASD who have accumulated credits. Buying this allows a civilian to instantly skip the training waitlist, jump straight into the next scheduled academy, and fast-track their way to becoming an official Deputy."
+        "description": "This is the perfect bridge for people outside of LASD who have accumulated credits. Buying this allows a civilian to instantly skip the training waitlist, jump straight into the next scheduled academy, and fast-track their way to becoming an official Deputy.",
+        "role_id": None,
+        "duration": "N/A"
     },
     {
         "id": "honorary_command_staff",
         "name": "Honorary Command Staff Rank (Permanent)",
         "price": 500,
-        "description": "A Discord role called the Sheriff's Advisory Council. It sits high on the member list, giving veteran players or highly active outsiders massive status without giving them actual HR powers. (You may be consulted though!)"
+        "description": "A Discord role called the Sheriff's Advisory Council. It sits high on the member list, giving veteran players or highly active outsiders massive status without giving them actual HR powers. (You may be consulted though!)",
+        "role_id": 1550685863212617758,
+        "duration": "Permanent"
     },
     {
         "id": "vip_chat_color",
         "name": "VIP Chat Color (Yellow Role)",
         "price": 50,
-        "description": "Gives the user a custom, distinct yellow role on the Discord active users list. It's clean, and looks great on the sidebar."
+        "description": "Gives the user a custom, distinct yellow role on the Discord active users list. It's clean, and looks great on the sidebar.",
+        "role_id": 1550684278378201259,
+        "duration": "Permanent"
     }
 ]
 
@@ -1830,8 +1865,9 @@ def market_embed() -> discord.Embed:
     )
 
     for item in MARKET_ITEMS:
+        duration = item.get('duration', 'N/A')
         embed.add_field(
-            name=f"{item['name']} — **${item['price']} Պ**",
+            name=f"{item['name']} — **${item['price']} Պ** {'(' + duration + ')' if duration != 'N/A' else ''}",
             value=item['description'],
             inline=False
         )
@@ -1845,8 +1881,12 @@ class MarketBuyView(discord.ui.View):
         super().__init__(timeout=None)
 
         for item in MARKET_ITEMS:
+            duration = item.get('duration', 'N/A')
+            label = f"Buy {item['name']} — ${item['price']} Պ"
+            if duration != "N/A":
+                label += f" ({duration})"
             button = discord.ui.Button(
-                label=f"Buy {item['name']} — ${item['price']} Պ",
+                label=label,
                 style=discord.ButtonStyle.primary,
                 custom_id=f"market:buy:{item['id']}"
             )
@@ -1867,11 +1907,13 @@ class MarketBuyView(discord.ui.View):
 
             # Create confirmation view
             confirm_view = MarketConfirmView(item)
+            duration = item.get('duration', 'N/A')
             embed = discord.Embed(
                 title=f"Confirm Purchase: {item['name']}",
                 description=(
                     f"**Item:** {item['name']}\n"
                     f"**Price:** {item['price']:,} Պ\n"
+                    f"**Duration:** {duration}\n"
                     f"**Your Balance:** {user_points:,} Պ\n"
                     f"**Remaining After Purchase:** {user_points - item['price']:,} Պ\n\n"
                     f"{item['description']}\n\n"
@@ -1919,32 +1961,57 @@ class MarketConfirmView(discord.ui.View):
         # Deduct points
         new_balance = remove_merit_points(user_id, self.item['price'], source="Market Purchase", description=f"Purchased: {self.item['name']}")
 
+        # Assign role if applicable
+        role_assigned = False
+        role_info = ""
+        guild = interaction.guild
+        if guild and self.item.get('role_id'):
+            role = guild.get_role(self.item['role_id'])
+            member = guild.get_member(user_id)
+            if role and member:
+                try:
+                    await member.add_roles(role, reason=f"Market purchase: {self.item['name']}")
+                    role_assigned = True
+
+                    duration = self.item.get('duration', 'N/A')
+                    if duration and duration != "N/A" and duration != "Permanent":
+                        role_info = f"\n**Role:** {role.mention} (expires in {duration})"
+                        # Schedule role removal
+                        duration_seconds = MARKET_ROLE_DURATIONS.get(self.item['id'], 0)
+                        if duration_seconds > 0:
+                            asyncio.create_task(remove_role_after_duration(guild, member, role, duration_seconds))
+                    else:
+                        role_info = f"\n**Role:** {role.mention} (permanent)"
+                except discord.Forbidden:
+                    role_info = "\n⚠️ Could not assign role (missing permissions)"
+                except discord.HTTPException as e:
+                    role_info = f"\n⚠️ Could not assign role: {e}"
+
         # Send confirmation
         embed = discord.Embed(
             title="✅ Purchase Successful!",
             description=(
                 f"You bought **{self.item['name']}** for **{self.item['price']:,} Պ**!\n\n"
-                f"**New Balance:** {new_balance:,} Պ\n\n"
-                f"**Item Details:**\n{self.item['description']}\n\n"
-                "An administrator has been notified to fulfill your purchase."
+                f"**New Balance:** {new_balance:,} Պ{role_info}\n\n"
+                f"**Item Details:**\n{self.item['description']}"
             ),
             color=discord.Color.green()
         )
         embed.set_footer(text="Made by zeemonyt • LASD Utilities")
         await interaction.response.edit_message(embed=embed, view=None)
 
-        # Notify admins (log to strike channel or a specific channel)
-        guild = interaction.guild
+        # Log to market log channel
         if guild:
-            log_channel = guild.get_channel(STRIKE_LOG_CHANNEL_ID)
+            log_channel = guild.get_channel(MARKET_LOG_CHANNEL_ID)
             if log_channel:
                 log_embed = discord.Embed(
                     title="🛒 Market Purchase",
                     description=(
                         f"**Buyer:** {interaction.user.mention} (`{user_id}`)\n"
                         f"**Item:** {self.item['name']}\n"
-                        f"**Price:** {self.item['price']:,} Պ\n"
-                        f"**New Balance:** {new_balance:,} Պ"
+                        f"**Price:** {self.item['price']:,}Պ\n"
+                        f"**New Balance:** {new_balance:,}Պ\n"
+                        f"**Role Assigned:** {'✅ Yes' if role_assigned else '❌ No'}"
                     ),
                     color=discord.Color.gold()
                 )
@@ -1954,12 +2021,47 @@ class MarketConfirmView(discord.ui.View):
                 except discord.Forbidden:
                     pass
 
+            # Also log Fast Pass to dedicated channel
+            if self.item['id'] == 'fast_pass':
+                fast_pass_log_channel = guild.get_channel(FAST_PASS_LOG_CHANNEL_ID)
+                if fast_pass_log_channel:
+                    fast_pass_embed = discord.Embed(
+                        title="⚡ Fast Pass Purchase",
+                        description=(
+                            f"**Buyer:** {interaction.user.mention} (`{user_id}`)\n"
+                            f"**Price:** {self.item['price']:,}Պ\n"
+                            f"**New Balance:** {new_balance:,}Պ\n\n"
+                            f"**Action Required:** Manual fulfillment needed for Fast Pass (skip training waitlist)"
+                        ),
+                        color=discord.Color.blue()
+                    )
+                    fast_pass_embed.set_footer(text="Made by zeemonyt")
+                    try:
+                        await fast_pass_log_channel.send(embed=fast_pass_embed)
+                    except discord.Forbidden:
+                        pass
+
     async def cancel_purchase(self, interaction: discord.Interaction):
         await interaction.response.edit_message(
             content="❌ Purchase cancelled.",
             embed=None,
             view=None
         )
+
+
+async def remove_role_after_duration(guild: discord.Guild, member: discord.Member, role: discord.Role, duration_seconds: int):
+    """Removes a role from a member after the specified duration."""
+    try:
+        await asyncio.sleep(duration_seconds)
+        # Re-fetch member in case they left/rejoined
+        try:
+            member = guild.get_member(member.id) or await guild.fetch_member(member.id)
+            if member and role in member.roles:
+                await member.remove_roles(role, reason=f"Market purchase expired: {role.name}")
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+    except asyncio.CancelledError:
+        pass
 
 
 def register_market_views() -> None:
@@ -2514,6 +2616,367 @@ async def shift_leaderboard(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
+@bot.tree.command(name="shift-active", description="View currently active staff on shift.")
+async def shift_active(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use shift commands.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    if not active_shifts:
+        embed = discord.Embed(
+            title="🟢 Active Shifts",
+            description="No staff members currently on shift.",
+            color=discord.Color.gold()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed)
+        return
+
+    guild = interaction.guild
+    active_text = ""
+    for user_id, shift_data in active_shifts.items():
+        member = guild.get_member(user_id) if guild else None
+        name = member.display_name if member else f"User {user_id}"
+        status = "☕ On Break" if shift_data["on_break"] else "🟢 On Shift"
+        elapsed = time.time() - shift_data["start_time"] - shift_data["break_time"]
+        if shift_data["on_break"]:
+            elapsed -= (time.time() - shift_data["break_start"])
+        elapsed = max(0, elapsed)
+        active_text += f"• **{name}** — {status} (`{format_duration(elapsed)}`)\n"
+
+    embed = discord.Embed(
+        title="🟢 Active Shifts",
+        description=active_text,
+        color=discord.Color.green()
+    )
+    embed.set_footer(text="Made by zeemonyt")
+    await interaction.response.send_message(embed=embed)
+
+
+class ShiftStatusView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=300)
+        self.user_id = user_id
+
+    @discord.ui.button(label="Start Shift", style=discord.ButtonStyle.success, custom_id="shift:start", emoji="🟢")
+    async def start_shift(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your shift panel!", ephemeral=True)
+            return
+        await self.handle_shift_start(interaction)
+
+    @discord.ui.button(label="Take Break", style=discord.ButtonStyle.secondary, custom_id="shift:break", emoji="☕")
+    async def toggle_break(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your shift panel!", ephemeral=True)
+            return
+        await self.handle_break(interaction)
+
+    @discord.ui.button(label="End Shift", style=discord.ButtonStyle.danger, custom_id="shift:end", emoji="🔴")
+    async def end_shift(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("This isn't your shift panel!", ephemeral=True)
+            return
+        await self.handle_end_shift(interaction)
+
+    async def handle_shift_start(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        if user_id in active_shifts:
+            await interaction.response.send_message("You already have an active shift!", ephemeral=True)
+            return
+
+        raw_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
+        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+
+        active_shifts[user_id] = {
+            "start_time": time.time(),
+            "original_nick": original_nick,
+            "break_time": 0.0,
+            "on_break": False,
+            "break_start": 0.0
+        }
+        save_shift_data()
+        await apply_on_shift_nick(interaction.user, original_nick)
+
+        embed = discord.Embed(
+            title="🟢 Shift Started",
+            description=f"Shift started at <t:{int(time.time())}:F>",
+            color=discord.Color.green()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    async def handle_break(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        if user_id not in active_shifts:
+            await interaction.response.send_message("You don't have an active shift!", ephemeral=True)
+            return
+
+        shift_data = active_shifts[user_id]
+        if not shift_data["on_break"]:
+            shift_data["on_break"] = True
+            shift_data["break_start"] = time.time()
+            status = "Break started"
+        else:
+            break_duration = time.time() - shift_data["break_start"]
+            shift_data["break_time"] += break_duration
+            shift_data["on_break"] = False
+            shift_data["break_start"] = 0.0
+            status = f"Break ended ({format_duration(break_duration)})"
+
+        save_shift_data()
+        embed = discord.Embed(
+            title=f"☕ {status}",
+            description=f"Break status updated at <t:{int(time.time())}:F>",
+            color=discord.Color.gold() if not shift_data["on_break"] else discord.Color.orange()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.edit_message(embed=embed, view=None)
+
+    async def handle_end_shift(self, interaction: discord.Interaction):
+        user_id = interaction.user.id
+        if user_id not in active_shifts:
+            await interaction.response.send_message("You don't have an active shift!", ephemeral=True)
+            return
+
+        shift_data = active_shifts.pop(user_id)
+        end_time = time.time()
+        total_break_time = shift_data["break_time"]
+        if shift_data["on_break"]:
+            total_break_time += (end_time - shift_data["break_start"])
+
+        total_time = end_time - shift_data["start_time"]
+        active_duty_time = max(0.0, total_time - total_break_time)
+
+        last_shifts[user_id] = active_duty_time
+        total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
+        shift_leaderboard_data[user_id] = total_cumulative
+        save_shift_data()
+
+        await restore_nick(interaction.user, shift_data["original_nick"])
+
+        embed = discord.Embed(
+            title="🔴 Shift Ended",
+            description=f"**Active Duty:** `{format_duration(active_duty_time)}`\n**Total Cumulative:** `{format_duration(total_cumulative)}`",
+            color=discord.Color.blue()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.edit_message(embed=embed, view=None)
+
+
+@bot.tree.command(name="shift", description="View and manage your shift status.")
+async def shift_command(interaction: discord.Interaction):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use shift commands.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    user_id = interaction.user.id
+    shift_data = active_shifts.get(user_id)
+
+    if shift_data:
+        elapsed = time.time() - shift_data["start_time"] - shift_data["break_time"]
+        if shift_data["on_break"]:
+            elapsed -= (time.time() - shift_data["break_start"])
+        elapsed = max(0, elapsed)
+
+        if shift_data["on_break"]:
+            status = "☕ On Break"
+            color = discord.Color.orange()
+        else:
+            status = "🟢 On Shift"
+            color = discord.Color.green()
+
+        embed = discord.Embed(
+            title="Your Shift Status",
+            description=f"**Status:** {status}\n**Duration:** `{format_duration(elapsed)}`\n**Started:** <t:{int(shift_data['start_time'])}:F>",
+            color=color
+        )
+    else:
+        embed = discord.Embed(
+            title="Your Shift Status",
+            description="**Status:** 🔴 Off Shift\n\nClick **Start Shift** to begin your shift.",
+            color=discord.Color.red()
+        )
+
+    embed.set_footer(text="Made by zeemonyt")
+    await interaction.response.send_message(embed=embed, view=ShiftStatusView(user_id), ephemeral=True)
+
+
+@bot.tree.command(name="shift-choose", description="All-in-one shift management command.")
+@app_commands.describe(
+    option="Select an action",
+    user="Optional: Target user (for admin actions)"
+)
+@app_commands.choices(option=[
+    app_commands.Choice(name="Start Shift", value="start"),
+    app_commands.Choice(name="End Shift", value="end"),
+    app_commands.Choice(name="Take Break", value="break"),
+    app_commands.Choice(name="Active Shifts", value="active"),
+    app_commands.Choice(name="Leaderboard", value="leaderboard"),
+    app_commands.Choice(name="See Status", value="see"),
+    app_commands.Choice(name="My Status", value="status")
+])
+async def shift_choose(
+    interaction: discord.Interaction,
+    option: app_commands.Choice[str],
+    user: discord.Member = None
+):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use shift commands.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    action = option.value
+    target = user or interaction.user
+    target_id = target.id
+
+    if action == "start":
+        if target_id in active_shifts:
+            await interaction.response.send_message(f"{target.mention} already has an active shift!", ephemeral=True)
+            return
+        raw_nick = target.nick if target.nick else target.name
+        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+        active_shifts[target_id] = {
+            "start_time": time.time(),
+            "original_nick": original_nick,
+            "break_time": 0.0,
+            "on_break": False,
+            "break_start": 0.0
+        }
+        save_shift_data()
+        await apply_on_shift_nick(target, original_nick)
+        await interaction.response.send_message(f"🟢 Started shift for {target.mention}", ephemeral=(target != interaction.user))
+
+    elif action == "end":
+        if target_id not in active_shifts:
+            await interaction.response.send_message(f"{target.mention} doesn't have an active shift!", ephemeral=True)
+            return
+        shift_data = active_shifts.pop(target_id)
+        end_time = time.time()
+        total_break_time = shift_data["break_time"]
+        if shift_data["on_break"]:
+            total_break_time += (end_time - shift_data["break_start"])
+        total_time = end_time - shift_data["start_time"]
+        active_duty_time = max(0.0, total_time - total_break_time)
+        last_shifts[target_id] = active_duty_time
+        total_cumulative = shift_leaderboard_data.get(target_id, 0.0) + active_duty_time
+        shift_leaderboard_data[target_id] = total_cumulative
+        save_shift_data()
+        await restore_nick(target, shift_data["original_nick"])
+        await interaction.response.send_message(f"🔴 Ended shift for {target.mention} — `{format_duration(active_duty_time)}` logged", ephemeral=(target != interaction.user))
+
+    elif action == "break":
+        if target_id not in active_shifts:
+            await interaction.response.send_message(f"{target.mention} doesn't have an active shift!", ephemeral=True)
+            return
+        shift_data = active_shifts[target_id]
+        if not shift_data["on_break"]:
+            shift_data["on_break"] = True
+            shift_data["break_start"] = time.time()
+            status = "Break started"
+        else:
+            break_duration = time.time() - shift_data["break_start"]
+            shift_data["break_time"] += break_duration
+            shift_data["on_break"] = False
+            shift_data["break_start"] = 0.0
+            status = f"Break ended ({format_duration(break_duration)})"
+        save_shift_data()
+        await interaction.response.send_message(f"☕ {status} for {target.mention}", ephemeral=(target != interaction.user))
+
+    elif action == "active":
+        if not active_shifts:
+            await interaction.response.send_message("No staff members currently on shift.", ephemeral=True)
+            return
+        guild = interaction.guild
+        active_text = ""
+        for uid, sdata in active_shifts.items():
+            member = guild.get_member(uid) if guild else None
+            name = member.display_name if member else f"User {uid}"
+            st = "☕ On Break" if sdata["on_break"] else "🟢 On Shift"
+            elapsed = time.time() - sdata["start_time"] - sdata["break_time"]
+            if sdata["on_break"]:
+                elapsed -= (time.time() - sdata["break_start"])
+            elapsed = max(0, elapsed)
+            active_text += f"• **{name}** — {st} (`{format_duration(elapsed)}`)\n"
+        embed = discord.Embed(title="🟢 Active Shifts", description=active_text, color=discord.Color.green())
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    elif action == "leaderboard":
+        if not shift_leaderboard_data:
+            await interaction.response.send_message("No shift data logged yet.", ephemeral=True)
+            return
+        sorted_staff = sorted(shift_leaderboard_data.items(), key=lambda x: x[1], reverse=True)
+        lb_text = ""
+        for i, (uid, secs) in enumerate(sorted_staff[:10], 1):
+            icon = "✔" if secs >= QUOTA_REQUIRED_SECONDS else "❌"
+            lb_text += f"**{i}.** <@{uid}> — `{format_duration(secs)}` {icon}\n"
+        embed = discord.Embed(title="Staff Shift Leaderboard", description=lb_text, color=discord.Color.gold())
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    elif action == "see":
+        shift_data = active_shifts.get(target_id)
+        if shift_data:
+            elapsed = time.time() - shift_data["start_time"] - shift_data["break_time"]
+            if shift_data["on_break"]:
+                elapsed -= (time.time() - shift_data["break_start"])
+            elapsed = max(0, elapsed)
+            status = "☕ On Break" if shift_data["on_break"] else "🟢 On Shift"
+            embed = discord.Embed(
+                title=f"{target.display_name}'s Shift Status",
+                description=f"**Status:** {status}\n**Duration:** `{format_duration(elapsed)}`\n**Started:** <t:{int(shift_data['start_time'])}:F>",
+                color=discord.Color.orange() if shift_data["on_break"] else discord.Color.green()
+            )
+        else:
+            embed = discord.Embed(
+                title=f"{target.display_name}'s Shift Status",
+                description="**Status:** 🔴 Off Shift",
+                color=discord.Color.red()
+            )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    elif action == "status":
+        shift_data = active_shifts.get(target_id)
+        if shift_data:
+            elapsed = time.time() - shift_data["start_time"] - shift_data["break_time"]
+            if shift_data["on_break"]:
+                elapsed -= (time.time() - shift_data["break_start"])
+            elapsed = max(0, elapsed)
+            status = "☕ On Break" if shift_data["on_break"] else "🟢 On Shift"
+            embed = discord.Embed(
+                title=f"{target.display_name}'s Shift Status",
+                description=f"**Status:** {status}\n**Duration:** `{format_duration(elapsed)}`\n**Started:** <t:{int(shift_data['start_time'])}:F>",
+                color=discord.Color.orange() if shift_data["on_break"] else discord.Color.green()
+            )
+        else:
+            embed = discord.Embed(
+                title=f"{target.display_name}'s Shift Status",
+                description="**Status:** 🔴 Off Shift",
+                color=discord.Color.red()
+            )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
 @bot.tree.command(name="money-leaderboard", description="View the merit points leaderboard.")
 async def money_leaderboard(interaction: discord.Interaction):
     if not has_web_panel_role(interaction):
@@ -2648,6 +3111,165 @@ async def money_items_command(interaction: discord.Interaction):
         f"🛒 **Market Items:** View all available items here: {market_url}",
         ephemeral=True
     )
+
+
+# Win chance percentages for each steal amount (1-50)
+STEAL_WIN_CHANCES = {
+    1: 20.00, 2: 19.65, 3: 19.31, 4: 18.96, 5: 18.61,
+    6: 18.27, 7: 17.92, 8: 17.57, 9: 17.22, 10: 16.88,
+    11: 16.53, 12: 16.18, 13: 15.84, 14: 15.49, 15: 15.14,
+    16: 14.80, 17: 14.45, 18: 14.10, 19: 13.76, 20: 13.41,
+    21: 13.06, 22: 12.71, 23: 12.37, 24: 12.02, 25: 11.67,
+    26: 11.33, 27: 10.98, 28: 10.63, 29: 10.29, 30: 9.94,
+    31: 9.59, 32: 9.24, 33: 8.90, 34: 8.55, 35: 8.20,
+    36: 7.86, 37: 7.51, 38: 7.16, 39: 6.82, 40: 6.47,
+    41: 6.12, 42: 5.78, 43: 5.43, 44: 5.08, 45: 4.73,
+    46: 4.39, 47: 4.04, 48: 3.69, 49: 3.35, 50: 3.00
+}
+
+
+@bot.tree.command(name="money-steal", description="Attempt to steal merit points from another user (1-50 MP).")
+@app_commands.describe(
+    target="The user to steal from",
+    amount="Amount to steal (1-50 MP)"
+)
+async def money_steal(
+    interaction: discord.Interaction,
+    target: discord.Member,
+    amount: app_commands.Range[int, 1, 50]
+):
+    if not has_web_panel_role(interaction):
+        embed = discord.Embed(
+            title="Access Denied",
+            description="You do not have the required role (1538076681586217031) to use this command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    if target.id == interaction.user.id:
+        embed = discord.Embed(
+            title="Invalid Target",
+            description="You cannot steal from yourself!",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    if target.bot:
+        embed = discord.Embed(
+            title="Invalid Target",
+            description="You cannot steal from bots!",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Check 24-hour cooldown
+    now = time.time()
+    last_attempt = steal_cooldowns.get(user_id, 0)
+    cooldown_seconds = 24 * 60 * 60  # 24 hours
+    if now - last_attempt < cooldown_seconds:
+        remaining = cooldown_seconds - (now - last_attempt)
+        hours = int(remaining // 3600)
+        minutes = int((remaining % 3600) // 60)
+        embed = discord.Embed(
+            title="⏳ Cooldown Active",
+            description=f"You must wait **{hours}h {minutes}m** before attempting another steal.",
+            color=discord.Color.orange()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Update cooldown
+    steal_cooldowns[user_id] = now
+
+    user_id = interaction.user.id
+    target_id = target.id
+
+    user_balance = merit_points.get(user_id, 0)
+    target_balance = merit_points.get(target_id, 0)
+
+    if target_balance < amount:
+        embed = discord.Embed(
+            title="Insufficient Funds",
+            description=f"{target.mention} only has **{target_balance:,} Պ**. You cannot steal more than they have.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Get win chance
+    win_chance = STEAL_WIN_CHANCES.get(amount, 3.00)
+    roll = random.random() * 100
+
+    if roll <= win_chance:
+        # SUCCESS - steal the money
+        merit_points[user_id] = user_balance + amount
+        merit_points[target_id] = target_balance - amount
+        save_merit_points()
+
+        # Log transactions
+        for uid, amt, src, desc in [
+            (user_id, amount, "Steal", f"Stole from {target.display_name}"),
+            (target_id, -amount, "Stolen", f"Stolen by {interaction.user.display_name}")
+        ]:
+            if uid not in merit_transactions:
+                merit_transactions[uid] = []
+            merit_transactions[uid].append({
+                "amount": amt,
+                "source": src,
+                "description": desc,
+                "timestamp": int(time.time())
+            })
+        save_merit_transactions()
+
+        embed = discord.Embed(
+            title="💰 Steal Successful!",
+            description=(
+                f"You successfully stole **{amount:,} Պ** from {target.mention}!\n\n"
+                f"**Your New Balance:** {merit_points[user_id]:,} Պ\n"
+                f"**{target.display_name}'s New Balance:** {merit_points[target_id]:,} Պ\n\n"
+                f"*Win chance was {win_chance:.2f}%*"
+            ),
+            color=discord.Color.green()
+        )
+    else:
+        # FAIL - lose half the amount (or all if less)
+        penalty = max(1, amount // 2)
+        actual_penalty = min(penalty, user_balance)
+        merit_points[user_id] = user_balance - actual_penalty
+        save_merit_points()
+
+        if actual_penalty > 0:
+            if user_id not in merit_transactions:
+                merit_transactions[user_id] = []
+            merit_transactions[user_id].append({
+                "amount": -actual_penalty,
+                "source": "Steal Failed",
+                "description": f"Failed to steal from {target.display_name}",
+                "timestamp": int(time.time())
+            })
+            save_merit_transactions()
+
+        embed = discord.Embed(
+            title="💸 Steal Failed!",
+            description=(
+                f"You failed to steal from {target.mention} and lost **{actual_penalty:,} Պ** as penalty!\n\n"
+                f"**Your New Balance:** {merit_points[user_id]:,} П\n"
+                f"**{target.display_name}'s Balance:** {target_balance:,} П (unchanged)\n\n"
+                f"*Win chance was {win_chance:.2f}%*"
+            ),
+            color=discord.Color.red()
+        )
+
+    embed.set_footer(text="Made by zeemonyt")
+    await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="market", description="Send the market/shop message to the market channel.")
@@ -3066,6 +3688,314 @@ async def shift_admin(
         )
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed)
+
+
+# --- PURGE COMMANDS ---
+
+def parse_duration_string(duration_str: str) -> int:
+    """Parses duration strings like '12h', '15m 2s', '30m', '1h 30m' into seconds."""
+    if not duration_str or duration_str.strip() == "0s":
+        return 0
+    duration_str = duration_str.lower().strip()
+
+    total_seconds = 0
+    pattern = re.compile(r'(?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?')
+    match = pattern.fullmatch(duration_str)
+    if match:
+        hours = int(match.group(1)) if match.group(1) else 0
+        minutes = int(match.group(2)) if match.group(2) else 0
+        seconds = int(match.group(3)) if match.group(3) else 0
+        total_seconds = (hours * 3600) + (minutes * 60) + seconds
+    return total_seconds
+
+
+def is_hr_plus(interaction: discord.Interaction) -> bool:
+    """Checks if the user is HR+ (has HR/SHR roles from QuickRanks.txt)."""
+    if interaction.user.id in ALLOWED_USER_IDS:
+        return True
+    if isinstance(interaction.user, discord.Member):
+        user_role_ids = {role.id for role in interaction.user.roles}
+        # HR+ roles from QuickRanks.txt (HR and SHR ranks)
+        hr_shr_roles = {
+            # SHR
+            1539431991080910899,  # GLARP Ownership
+            1538076681640747136,  # Overseer
+            1538076681640747135,  # High Ranking Team
+            1538076681640747133,  # Sheriff
+            1538076681640747132,  # Undersheriff
+            1539413609388712006,  # Chief
+            1538076681640747131,  # Chief Deputy
+            1550735626460995636,  # Assistant Chief
+            1550735900596506644,  # Captain
+            1538076681640747130,  # Deputy Captain
+            # HR
+            1550736797385101424,  # Commander
+            1550737209466818570,  # Staff Lieutenant
+            1538076681632219216,  # Lieutenant
+            1550737321991606362,  # First Lieutenant
+            1550736797695479840,  # Major
+            1550737452056973332,  # Sergeant Major
+            1538076681628028957,  # Sergeant
+            1538076681628028955,  # Master Deputy
+            1550738579016253461,  # Senior Supervisor
+            1538076681628028956,  # Supervisor
+            1550738587278909531,  # Senior Field Training Officer
+        }
+        return bool(user_role_ids.intersection(hr_shr_roles))
+    return False
+
+
+@bot.tree.command(name="unverified-purge", description="HR+: Purge unverified members with optional DM delay.")
+@app_commands.describe(
+    purge_delay="Time before purge (e.g. 1h, 30m, 1h 30m). 0s = now",
+    dm_delay="Time before sending DM warning (e.g. 1h, 30m). 0s = now"
+)
+async def unverified_purge(
+    interaction: discord.Interaction,
+    purge_delay: str = "0s",
+    dm_delay: str = "0s"
+):
+    if not is_hr_plus(interaction):
+        embed = discord.Embed(
+            title="Permission Denied",
+            description="HR+ only command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    guild = interaction.guild
+    if not guild:
+        await interaction.response.send_message("Guild not found.", ephemeral=True)
+        return
+
+    unverified_role = guild.get_role(UNVERIFIED_ROLE_ID)
+    verified_role = guild.get_role(VERIFIED_ROLE_ID)
+
+    if not unverified_role:
+        await interaction.response.send_message("Unverified role not found.", ephemeral=True)
+        return
+
+    # Get members with unverified role but NOT verified role
+    targets = [m for m in unverified_role.members if not verified_role or verified_role not in m.roles]
+
+    if not targets:
+        await interaction.response.send_message("No unverified members to purge (excluding those with verified role).", ephemeral=True)
+        return
+
+    purge_seconds = parse_duration_string(purge_delay)
+    dm_seconds = parse_duration_string(dm_delay)
+    purge_time = time.time() + purge_seconds
+    dm_time = time.time() + dm_seconds
+
+    dm_message = (
+        "Hello, this is the GLARP I LASD bot! This is a reminder that you will be kicked from LASD "
+        "as you are not verified. Verify in "
+        "https://discord.com/channels/1538076681565241384/1545124075989504170"
+    )
+
+    embed = discord.Embed(
+        title="🧹 Unverified Purge Scheduled",
+        description=(
+            f"**Target Count:** {len(targets)} members\n"
+            f"**Purge In:** {'Now' if purge_seconds == 0 else f'<t:{int(purge_time)}:R>'}\n"
+            f"**DM Warning In:** {'Now' if dm_seconds == 0 else f'<t:{int(dm_time)}:R>'}\n\n"
+            "Members with the verified role are excluded from this purge."
+        ),
+        color=discord.Color.orange()
+    )
+    embed.set_footer(text=f"Initiated by {interaction.user.display_name} • Made by zeemonyt")
+    await interaction.response.send_message(embed=embed)
+
+    # Schedule DM sending
+    if dm_seconds > 0:
+        async def send_dms():
+            await asyncio.sleep(dm_seconds)
+            for member in targets:
+                try:
+                    await member.send(dm_message)
+                except discord.Forbidden:
+                    pass
+                except discord.HTTPException:
+                    pass
+        asyncio.create_task(send_dms())
+    else:
+        for member in targets:
+            try:
+                await member.send(dm_message)
+            except discord.Forbidden:
+                pass
+            except discord.HTTPException:
+                pass
+
+    # Schedule purge
+    async def do_purge():
+        await asyncio.sleep(purge_seconds)
+        for member in targets:
+            try:
+                await member.kick(reason="Unverified purge - failed to verify in time")
+            except discord.Forbidden:
+                pass
+            except discord.HTTPException:
+                pass
+
+        # Log to strike channel
+        log_channel = guild.get_channel(STRIKE_LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(
+                title="🧹 Unverified Purge Executed",
+                description=f"**Executed by:** {interaction.user.mention}\n**Purged:** {len(targets)} members",
+                color=discord.Color.red()
+            )
+            log_embed.set_footer(text="Made by zeemonyt")
+            try:
+                await log_channel.send(embed=log_embed)
+            except discord.Forbidden:
+                pass
+
+    asyncio.create_task(do_purge())
+
+
+@bot.tree.command(name="untrained-purge", description="HR+: Purge untrained members (Requires Training / RA) with DM warning.")
+@app_commands.describe(
+    purge_delay="Time before purge (e.g. 12h, 15m 2s). 0s = now",
+    target_group="Which group to purge",
+    dm_delay="Time before sending DM warning. 0s = now"
+)
+@app_commands.choices(target_group=[
+    app_commands.Choice(name="Requires Training", value="training"),
+    app_commands.Choice(name="RA (Ride Along)", value="ra"),
+    app_commands.Choice(name="Both", value="both")
+])
+async def untrained_purge(
+    interaction: discord.Interaction,
+    purge_delay: str = "0s",
+    target_group: app_commands.Choice[str] = "both",
+    dm_delay: str = "0s"
+):
+    if not is_hr_plus(interaction):
+        embed = discord.Embed(
+            title="Permission Denied",
+            description="HR+ only command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    guild = interaction.guild
+    if not guild:
+        await interaction.response.send_message("Guild not found.", ephemeral=True)
+        return
+
+    training_role = guild.get_role(REQUIRES_TRAINING_ROLE_ID)
+    ra_role = guild.get_role(RA_ROLE_ID)
+    verified_role = guild.get_role(VERIFIED_ROLE_ID)
+
+    targets = []
+    group_name = ""
+
+    if target_group.value in ["training", "both"] and training_role:
+        targets.extend([m for m in training_role.members if not verified_role or verified_role not in m.roles])
+        group_name += "Requires Training, "
+    if target_group.value in ["ra", "both"] and ra_role:
+        targets.extend([m for m in ra_role.members if not verified_role or verified_role not in m.roles])
+        group_name += "RA, "
+
+    # Deduplicate
+    seen = set()
+    unique_targets = []
+    for m in targets:
+        if m.id not in seen:
+            seen.add(m.id)
+            unique_targets.append(m)
+    targets = unique_targets
+    group_name = group_name.rstrip(", ")
+
+    if not targets:
+        await interaction.response.send_message(f"No members found in {group_name} (excluding those with verified role).", ephemeral=True)
+        return
+
+    purge_seconds = parse_duration_string(purge_delay)
+    dm_seconds = parse_duration_string(dm_delay)
+    purge_time = time.time() + purge_seconds
+    dm_time = time.time() + dm_seconds
+
+    # Format the time until purge for the DM message
+    if purge_seconds > 0:
+        time_until_purge = format_duration(purge_seconds)
+    else:
+        time_until_purge = "immediately"
+
+    dm_message = (
+        "Hello, this is the GLARP I LASD bot! This is a reminder that you will be kicked from LASD "
+        f"as you are not trained currently. You have {time_until_purge} to get trained. "
+        "Request a training in "
+        "https://discord.com/channels/1538076681565241384/1538076682894843966"
+    )
+
+    embed = discord.Embed(
+        title="🎓 Untrained Purge Scheduled",
+        description=(
+            f"**Target Group:** {group_name}\n"
+            f"**Target Count:** {len(targets)} members\n"
+            f"**Purge In:** {'Now' if purge_seconds == 0 else f'<t:{int(purge_time)}:R>'}\n"
+            f"**DM Warning In:** {'Now' if dm_seconds == 0 else f'<t:{int(dm_time)}:R>'}\n\n"
+            "Members with the verified role are excluded from this purge."
+        ),
+        color=discord.Color.orange()
+    )
+    embed.set_footer(text=f"Initiated by {interaction.user.display_name} • Made by zeemonyt")
+    await interaction.response.send_message(embed=embed)
+
+    # Schedule DM sending
+    if dm_seconds > 0:
+        async def send_dms():
+            await asyncio.sleep(dm_seconds)
+            for member in targets:
+                try:
+                    await member.send(dm_message)
+                except discord.Forbidden:
+                    pass
+                except discord.HTTPException:
+                    pass
+        asyncio.create_task(send_dms())
+    else:
+        for member in targets:
+            try:
+                await member.send(dm_message)
+            except discord.Forbidden:
+                pass
+            except discord.HTTPException:
+                pass
+
+    # Schedule purge
+    async def do_purge():
+        await asyncio.sleep(purge_seconds)
+        for member in targets:
+            try:
+                await member.kick(reason=f"Untrained purge ({group_name}) - failed to complete training in time")
+            except discord.Forbidden:
+                pass
+            except discord.HTTPException:
+                pass
+
+        # Log to strike channel
+        log_channel = guild.get_channel(STRIKE_LOG_CHANNEL_ID)
+        if log_channel:
+            log_embed = discord.Embed(
+                title="🎓 Untrained Purge Executed",
+                description=f"**Executed by:** {interaction.user.mention}\n**Group:** {group_name}\n**Purged:** {len(targets)} members",
+                color=discord.Color.red()
+            )
+            log_embed.set_footer(text="Made by zeemonyt")
+            try:
+                await log_channel.send(embed=log_embed)
+            except discord.Forbidden:
+                pass
+
+    asyncio.create_task(do_purge())
 
 
 # --- STRIKE / INFRACTION COMMAND ---
