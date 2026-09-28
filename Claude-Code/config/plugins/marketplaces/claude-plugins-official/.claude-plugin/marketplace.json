@@ -705,7 +705,7 @@
         "url": "https://github.com/carta/plugins.git",
         "path": "plugins/carta-cap-table",
         "ref": "main",
-        "sha": "e0b245f0621c5333ecae47a256c851c4b2e79cb4"
+        "sha": "6ab81016389cac69e03ed79114d75f31bc8e7bfd"
       },
       "homepage": "https://carta.com"
     },
@@ -721,7 +721,7 @@
         "url": "https://github.com/carta/plugins.git",
         "path": "plugins/carta-crm",
         "ref": "main",
-        "sha": "9970737943d11af5de5ebaae592aed42bcdc6ae7"
+        "sha": "6ab81016389cac69e03ed79114d75f31bc8e7bfd"
       },
       "homepage": "https://carta.com"
     },
@@ -737,7 +737,7 @@
         "url": "https://github.com/carta/plugins.git",
         "path": "plugins/carta-investors",
         "ref": "main",
-        "sha": "e0b245f0621c5333ecae47a256c851c4b2e79cb4"
+        "sha": "6ab81016389cac69e03ed79114d75f31bc8e7bfd"
       },
       "homepage": "https://carta.com"
     },
@@ -1038,7 +1038,7 @@
     },
     {
       "name": "code-modernization",
-      "description": "Modernize legacy codebases (COBOL, legacy Java/C++, monolith web apps) with a structured preflight / assess / map / extract-rules / brief / reimagine / transform / harden workflow, an interactive topology viewer, and specialist review agents",
+      "description": "Guided modernization for any legacy codebase: start with /modernize, get an assessment, an interactive map, the business rules mined from the code, and a plan you approve, then an upgrade, a rewrite or a rebuild with independent proof that the new code behaves like the old. Includes security hardening, a one-page report, specialist agents, and an optional live progress pane (early access).",
       "author": {
         "name": "Anthropic",
         "email": "support@anthropic.com"
@@ -1729,6 +1729,20 @@
       }
     },
     {
+      "name": "govtribe",
+      "description": "Government contracting research and capture workflows in Claude: opportunity and pipeline briefs, bid/no-bid and competitor analysis, price-to-win and proposal prep, powered by the GovTribe connector.",
+      "author": {
+        "name": "GovTribe"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/GovTribe/claude-plugin.git",
+        "sha": "d3e0c82c6c4f960320c010ceb8aabb463f1fb7d2"
+      },
+      "homepage": "https://govtribe.com"
+    },
+    {
       "name": "grafana-assistant",
       "description": "Skills and rules for developing and using the Grafana Assistant app and CLI.",
       "author": {
@@ -2128,6 +2142,22 @@
       "category": "productivity",
       "source": "./external_plugins/linear",
       "homepage": "https://github.com/anthropics/claude-plugins-public/tree/main/external_plugins/linear"
+    },
+    {
+      "name": "linq-alpha",
+      "description": "LinqAlpha financial research in Claude: guided setup for the LinqAlpha connector, capability-based source selection for fundamentals, estimates, transcripts, filings and market data, and an optional, opt-in default-source preference you can remove at any time. Requires a LinqAlpha account.",
+      "author": {
+        "name": "LinqAlpha"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/linq-lab/linq-alpha-plugin.git",
+        "path": "plugins/linq-alpha",
+        "ref": "main",
+        "sha": "42202fdd4bd1cbb373c1f11a4114f173edffc437"
+      },
+      "homepage": "https://www.linqalpha.com"
     },
     {
       "name": "liquid-lsp",
@@ -4050,6 +4080,20 @@
       "homepage": "https://val.town"
     },
     {
+      "name": "vanguard-advisor-tools",
+      "description": "Vanguard Advisor Tools for financial professionals: research and compare funds and ETFs across the industry and prepare for client conversations, using Vanguard's advisor connector in Claude.",
+      "author": {
+        "name": "Vanguard"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/Vanguard-oss/vanguard-advisor-tools.git",
+        "sha": "328fe9f61fe7a375b87a6492e265b4a5a955b0ce"
+      },
+      "homepage": "https://advisors.vanguard.com"
+    },
+    {
       "name": "vanta",
       "description": "The Vanta plugin connects Claude Code to Vanta's security and compliance platform through the Vanta MCP server. It combines Vanta's test-specific remediation intelligence with your local repository context to help you fix compliance failures faster.",
       "author": {
@@ -4351,6 +4395,21 @@
         "sha": "01f2b0806fc91d0550859a7f840db353d1edd4e9"
       },
       "homepage": "https://github.com/wingspanHQ/mcp-claude-plugin"
+    },
+    {
+      "name": "amazon-selling-partner",
+      "displayName": "Amazon Selling Partner",
+      "description": "Connect your Amazon Seller Central account to Claude. Ask about sales, inventory, and listing performance and get recommendations grounded in your own data, then review and approve every listing, inventory or FBA action before it runs. Bundles the Amazon Selling Partner MCP server (Seller Central OAuth on first use). Currently in beta.",
+      "author": {
+        "name": "Amazon"
+      },
+      "category": "productivity",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/amzn/selling-partner-agentic-toolkit.git",
+        "sha": "10573bac239b7062a476667eaa574d400335c70e"
+      },
+      "homepage": "https://github.com/amzn/selling-partner-agentic-toolkit"
     }
   ]
 }

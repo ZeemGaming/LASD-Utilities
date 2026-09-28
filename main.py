@@ -1368,60 +1368,87 @@ async def check_for_shift_farming():
             save_shift_data()
 
 
-# --- AUTOMATED WEEKLY RESET TASK (12 AM Saturday CST) ---
-@tasks.loop(seconds=30)
-async def weekly_quota_reset():
+# Role IDs that are required to meet weekly shift quota
+# Includes Web Panel role (verified staff) + all ranked roles from hierarchy
+QUOTA_ELIGIBLE_ROLE_IDS = {WEB_PANEL_ROLE_ID} | {role_id for role_id, _ in RANK_HIERARCHY}
+
+
+async def run_quota_reset(guild: discord.Guild = None, force: bool = False) -> bool:
+    """Run the weekly quota reset logic. Returns True if reset was performed."""
     global last_quota_reset_date
     cst_zone = ZoneInfo("America/Chicago")
     now_cst = datetime.datetime.now(cst_zone)
 
+    # Determine the most recent Saturday at midnight CST
+    days_since_saturday = (now_cst.weekday() - 5) % 7
+    last_saturday = now_cst - datetime.timedelta(days=days_since_saturday)
+    last_saturday_midnight = last_saturday.replace(hour=0, minute=0, second=0, microsecond=0)
+    reset_date = last_saturday_midnight.date().isoformat()
+
+    # If not forced, only reset if we're past the reset time and haven't reset yet
+    if not force:
+        if now_cst < last_saturday_midnight:
+            return False  # Not yet time for this week's reset
+        if last_quota_reset_date == reset_date:
+            return False  # Already reset for this week
+
+    last_quota_reset_date = reset_date
+    save_verification_data()
+
+    target_guild = guild or bot.get_guild(GUILD_ID)
+    if target_guild:
+        channel = target_guild.get_channel(QUOTA_LOG_CHANNEL_ID)
+        if channel:
+            # Get all members who have quota-eligible roles
+            eligible_members = []
+            for member in target_guild.members:
+                if not member.bot and any(role.id in QUOTA_ELIGIBLE_ROLE_IDS for role in member.roles):
+                    eligible_members.append(member)
+
+            failed_users = []
+            passed_users = []
+            for member in eligible_members:
+                total_secs = shift_leaderboard_data.get(member.id, 0.0)
+                if total_secs < QUOTA_REQUIRED_SECONDS:
+                    failed_users.append(f"• {member.mention} (`{member.id}`) — `{format_duration(total_secs)}` / `02h 00m 00s`")
+                else:
+                    passed_users.append(member.id)
+
+            # Award $20 merit points to users who met quota
+            for uid in passed_users:
+                add_merit_points(uid, 20, source="Quota Bonus", description="Weekly shift quota met (≥1h30m)")
+
+            report_text = "**Weekly Quota Summary Report (Saturday Reset - CST)**\n\n"
+            if failed_users:
+                report_text += "The following staff members did not meet the 2-hour minimum shift quota this week:\n\n" + "\n".join(failed_users)
+            else:
+                report_text += "All active staff members successfully met their 2-hour quota this week! 🎉"
+
+            if passed_users:
+                report_text += "\n\n**Quota Bonus:** The following users earned **$20 Պ** for meeting quota:\n" + "\n".join(f"• <@{uid}>" for uid in passed_users)
+
+            embed = discord.Embed(
+                title="📅 End of Week Quota Report",
+                description=report_text,
+                color=discord.Color.red() if failed_users else discord.Color.green()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            try:
+                await channel.send(embed=embed)
+            except discord.Forbidden:
+                print("Error: Could not send weekly reset report to quota log channel.")
+
+    shift_leaderboard_data.clear()
+    last_shifts.clear()
+    print(f"Weekly shift leaderboard successfully reset for {reset_date} (force={force}).")
+    return True
+
+
+# --- AUTOMATED WEEKLY RESET TASK (12 AM Saturday CST) ---
+@tasks.loop(seconds=30)
+async def weekly_quota_reset():
     await check_for_shift_farming()
-
-    # Saturday is weekday 5. Trigger only at 12 AM hour on Saturday.
-    if now_cst.weekday() == 5 and now_cst.hour == 0:
-        reset_date = now_cst.date().isoformat()
-        if last_quota_reset_date != reset_date:
-            last_quota_reset_date = reset_date
-            save_verification_data()
-            guild = bot.get_guild(GUILD_ID)
-            if guild:
-                channel = guild.get_channel(QUOTA_LOG_CHANNEL_ID)
-                if channel:
-                    failed_users = []
-                    passed_users = []
-                    for uid, total_secs in shift_leaderboard_data.items():
-                        if total_secs < QUOTA_REQUIRED_SECONDS:
-                            failed_users.append(f"• <@{uid}> (`{uid}`) — `{format_duration(total_secs)}` / `02h 00m 00s`")
-                        else:
-                            passed_users.append(uid)
-
-                    # Award $20 merit points to users who met quota
-                    for uid in passed_users:
-                        add_merit_points(uid, 20, source="Quota Bonus", description="Weekly shift quota met (≥1h30m)")
-
-                    report_text = "**Weekly Quota Summary Report (Saturday Reset - CST)**\n\n"
-                    if failed_users:
-                        report_text += "The following staff members did not meet the 2-hour minimum shift quota this week:\n\n" + "\n".join(failed_users)
-                    else:
-                        report_text += "All active staff members successfully met their 2-hour quota this week! 🎉"
-
-                    if passed_users:
-                        report_text += "\n\n**Quota Bonus:** The following users earned **$20 Պ** for meeting quota:\n" + "\n".join(f"• <@{uid}>" for uid in passed_users)
-
-                    embed = discord.Embed(
-                        title="📅 End of Week Quota Report",
-                        description=report_text,
-                        color=discord.Color.red() if failed_users else discord.Color.green()
-                    )
-                    embed.set_footer(text="Made by zeemonyt")
-                    try:
-                        await channel.send(embed=embed)
-                    except discord.Forbidden:
-                        print("Error: Could not send weekly reset report to quota log channel.")
-
-            shift_leaderboard_data.clear()
-            last_shifts.clear()
-            print("Weekly shift leaderboard successfully reset for Saturday CST.")
+    await run_quota_reset()
 
 
 VERIFICATION_WORDS = [
@@ -2176,6 +2203,11 @@ async def on_ready():
 
     if not weekly_quota_reset.is_running():
         weekly_quota_reset.start()
+
+    # Check for missed quota reset on startup
+    guild = bot.get_guild(GUILD_ID)
+    if guild:
+        await run_quota_reset(guild=guild)
 
     register_verification_views()
     register_market_views()
@@ -3476,7 +3508,8 @@ async def money_admin(
     app_commands.Choice(name="Add Shift Time", value="add_time"),
     app_commands.Choice(name="Remove Shift Time", value="remove_time"),
     app_commands.Choice(name="Clear Current/Last Shift Time", value="clear_last"),
-    app_commands.Choice(name="Clear All Shift Time", value="clear_all")
+    app_commands.Choice(name="Clear All Shift Time", value="clear_all"),
+    app_commands.Choice(name="Force Quota Reset (Global)", value="force_quota_reset")
 ])
 async def shift_admin(
     interaction: discord.Interaction,
@@ -3688,6 +3721,90 @@ async def shift_admin(
         )
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed)
+
+    elif action == "force_quota_reset":
+        await interaction.response.defer(ephemeral=True)
+        performed = await run_quota_reset(guild=interaction.guild, force=True)
+        if performed:
+            embed = discord.Embed(
+                title="✅ Quota Reset Forced",
+                description="Weekly quota reset has been manually triggered. Leaderboards cleared, quota bonuses awarded, and report sent to log channel.",
+                color=discord.Color.green()
+            )
+        else:
+            embed = discord.Embed(
+                title="ℹ️ Quota Reset Not Needed",
+                description="The quota reset was already performed for this week, or it's not yet Saturday midnight CST. Use this command only if you need to force an immediate reset.",
+                color=discord.Color.blue()
+            )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+# Activity Check Configuration
+ACTIVITY_CHECK_CHANNEL_ID = 1539668156153602218
+
+# Rank hierarchy from highest to lowest (for demotion)
+# Based on QuickRanks.txt ordering
+RANK_HIERARCHY = [
+    # SHR
+    (1539431991080910899, "GLARP Ownership"),
+    (1538076681640747136, "Overseer"),
+    (1538076681640747135, "High Ranking Team"),
+    (1538076681640747128, "Department Head"),
+    # HR
+    (1538076681640747133, "Sheriff"),
+    (1538076681640747132, "Undersheriff"),
+    (1539413609388712006, "Chief"),
+    (1538076681640747131, "Chief Deputy"),
+    (1550735626460995636, "Assistant Chief"),
+    (1550735900596506644, "Captain"),
+    (1538076681640747130, "Deputy Captain"),
+    # MR
+    (1550736797385101424, "Commander"),
+    (1550737209466818570, "Staff Lieutenant"),
+    (1538076681632219216, "Lieutenant"),
+    (1550737321991606362, "First Lieutenant"),
+    (1550736797695479840, "Major"),
+    (1550737452056973332, "Sergeant Major"),
+    (1538076681628028957, "Sergeant"),
+    (1538076681628028955, "Master Deputy"),
+    (1550738579016253461, "Senior Supervisor"),
+    (1538076681628028956, "Supervisor"),
+    (1550738587278909531, "Senior Field Training Officer"),
+    # LR
+    (1550738620669894727, "Field Training Officer"),
+    (1550738623534596156, "Deputy First Class"),
+    (1538076681628028953, "Senior Deputy"),
+    (1538076681628028952, "Deputy"),
+    (1550738635706601482, "Junior Deputy"),
+]
+
+# Activity check storage
+activity_check_data = {
+    "message_id": None,
+    "start_time": None,
+    "channel_id": ACTIVITY_CHECK_CHANNEL_ID,
+}
+
+
+def get_member_highest_rank(member: discord.Member) -> tuple[int, str] | None:
+    """Returns (role_id, role_name) of the member's highest rank from the hierarchy."""
+    member_role_ids = {role.id for role in member.roles}
+    for role_id, role_name in RANK_HIERARCHY:
+        if role_id in member_role_ids:
+            return (role_id, role_name)
+    return None
+
+
+def get_next_lower_rank(current_role_id: int) -> tuple[int, str] | None:
+    """Returns the next lower rank in the hierarchy, or None if at bottom."""
+    for i, (role_id, role_name) in enumerate(RANK_HIERARCHY):
+        if role_id == current_role_id:
+            if i + 1 < len(RANK_HIERARCHY):
+                return RANK_HIERARCHY[i + 1]
+            return None  # At bottom of hierarchy
+    return None
 
 
 # --- PURGE COMMANDS ---
@@ -3996,6 +4113,230 @@ async def untrained_purge(
                 pass
 
     asyncio.create_task(do_purge())
+
+
+# --- ACTIVITY CHECK COMMAND ---
+
+async def run_activity_check(guild: discord.Guild, message_id: int, initiated_by: int):
+    """Runs the activity check after 24 hours - demotes members who didn't react."""
+    await asyncio.sleep(24 * 60 * 60)  # 24 hours
+
+    channel = guild.get_channel(ACTIVITY_CHECK_CHANNEL_ID)
+    if not channel:
+        print(f"Activity check: Channel {ACTIVITY_CHECK_CHANNEL_ID} not found")
+        return
+
+    try:
+        message = await channel.fetch_message(message_id)
+    except discord.NotFound:
+        print(f"Activity check: Message {message_id} not found")
+        return
+    except discord.Forbidden:
+        print(f"Activity check: No permission to fetch message")
+        return
+    except discord.HTTPException as e:
+        print(f"Activity check: HTTP error fetching message: {e}")
+        return
+
+    # Get the checkmark reaction
+    checkmark_reaction = None
+    for reaction in message.reactions:
+        if str(reaction.emoji) == "✅":
+            checkmark_reaction = reaction
+            break
+
+    if not checkmark_reaction:
+        print("Activity check: No checkmark reaction found on message")
+        return
+
+    # Get all users who reacted with checkmark
+    reacted_users = set()
+    try:
+        async for user in checkmark_reaction.users():
+            reacted_users.add(user.id)
+    except discord.Forbidden:
+        print("Activity check: No permission to fetch reaction users")
+        return
+    except discord.HTTPException as e:
+        print(f"Activity check: HTTP error fetching reaction users: {e}")
+        return
+
+    # Get all members who can view the channel (have View Channel permission)
+    # We'll check all members in the guild who have the permission
+    eligible_members = []
+    for member in guild.members:
+        if member.bot:
+            continue
+        # Check if member has permission to view the channel
+        perms = channel.permissions_for(member)
+        if perms.view_channel:
+            eligible_members.append(member)
+
+    # Find members who didn't react
+    non_reacted = [m for m in eligible_members if m.id not in reacted_users]
+
+    # Demote non-reacted members
+    demoted_count = 0
+    demoted_details = []
+
+    for member in non_reacted:
+        highest_rank = get_member_highest_rank(member)
+        if not highest_rank:
+            # No rank to demote
+            continue
+
+        current_role_id, current_role_name = highest_rank
+        next_rank = get_next_lower_rank(current_role_id)
+
+        current_role = guild.get_role(current_role_id)
+        if not current_role:
+            continue
+
+        try:
+            # Remove current rank
+            await member.remove_roles(current_role, reason="Activity check: Failed to react within 24 hours")
+
+            # Add next lower rank if exists
+            if next_rank:
+                next_role_id, next_role_name = next_rank
+                next_role = guild.get_role(next_role_id)
+                if next_role:
+                    await member.add_roles(next_role, reason="Activity check: Demoted to next lower rank")
+                    demoted_details.append(f"• {member.mention}: {current_role_name} → {next_role_name}")
+                else:
+                    demoted_details.append(f"• {member.mention}: {current_role_name} → (removed, next role not found)")
+            else:
+                demoted_details.append(f"• {member.mention}: {current_role_name} → (removed, at bottom of hierarchy)")
+
+            demoted_count += 1
+
+        except discord.Forbidden:
+            demoted_details.append(f"• {member.mention}: Failed to demote (missing permissions)")
+        except discord.HTTPException as e:
+            demoted_details.append(f"• {member.mention}: Failed to demote ({e})")
+
+    # Log results
+    log_channel = guild.get_channel(STRIKE_LOG_CHANNEL_ID)
+    if log_channel:
+        embed = discord.Embed(
+            title="⏰ Activity Check Complete",
+            description=(
+                f"**Channel:** {channel.mention}\n"
+                f"**Message:** [Jump to message]({message.jump_url})\n"
+                f"**Eligible Members:** {len(eligible_members)}\n"
+                f"**Reacted:** {len(reacted_users)}\n"
+                f"**Demoted:** {demoted_count}"
+            ),
+            color=discord.Color.red() if demoted_count > 0 else discord.Color.green()
+        )
+        if demoted_details:
+            embed.add_field(name="Demotion Details", value="\n".join(demoted_details[:20]), inline=False)
+            if len(demoted_details) > 20:
+                embed.add_field(name="", value=f"... and {len(demoted_details) - 20} more", inline=False)
+        embed.set_footer(text=f"Initiated by <@{initiated_by}> • Made by zeemonyt")
+        try:
+            await log_channel.send(embed=embed)
+        except discord.Forbidden:
+            pass
+
+    # Clear activity check data
+    activity_check_data["message_id"] = None
+    activity_check_data["start_time"] = None
+
+
+@bot.tree.command(name="activity-check", description="HR+: Start an activity check in the activity channel.")
+async def activity_check(interaction: discord.Interaction):
+    if not is_hr_plus(interaction):
+        embed = discord.Embed(
+            title="Permission Denied",
+            description="HR+ only command.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Check if there's already an active activity check
+    if activity_check_data["message_id"]:
+        embed = discord.Embed(
+            title="Activity Check Already Active",
+            description="There is already an active activity check. Wait for it to complete or use the admin panel to cancel.",
+            color=discord.Color.orange()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    channel = interaction.guild.get_channel(ACTIVITY_CHECK_CHANNEL_ID)
+    if not channel:
+        try:
+            channel = await interaction.guild.fetch_channel(ACTIVITY_CHECK_CHANNEL_ID)
+        except Exception:
+            embed = discord.Embed(
+                title="Error",
+                description=f"Could not find the activity check channel (`{ACTIVITY_CHECK_CHANNEL_ID}`).",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+
+    # Send the activity check message
+    try:
+        message = await channel.send(
+            content="<@&1538076681586217031>",
+            embed=discord.Embed(
+                title="Activity Check!",
+                description="Please react with ✅ if you see this message. \nIf you are detected not reacting, you will be demoted.",
+                color=discord.Color.blurple()
+            ).set_author(name="LASD Activity Check").set_footer(text="Made by zeemonyt."),
+            allowed_mentions=discord.AllowedMentions(roles=True)
+        )
+    except discord.Forbidden:
+        embed = discord.Embed(
+            title="Error",
+            description="Bot is missing permissions to send messages in the activity check channel.",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    except discord.HTTPException as e:
+        embed = discord.Embed(
+            title="Error",
+            description=f"Failed to send activity check message: {e}",
+            color=discord.Color.red()
+        )
+        embed.set_footer(text="Made by zeemonyt")
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+
+    # Add checkmark reaction
+    try:
+        await message.add_reaction("✅")
+    except discord.HTTPException as e:
+        print(f"Failed to add reaction: {e}")
+
+    # Store activity check data
+    activity_check_data["message_id"] = message.id
+    activity_check_data["start_time"] = time.time()
+
+    # Schedule the 24-hour check
+    asyncio.create_task(run_activity_check(interaction.guild, message.id, interaction.user.id))
+
+    embed = discord.Embed(
+        title="✅ Activity Check Started",
+        description=(
+            f"Activity check message sent to {channel.mention}.\n"
+            f"**Message ID:** `{message.id}`\n"
+            f"**Check completes in:** 24 hours (<t:{int(time.time() + 86400)}:R>)\n\n"
+            f"Members with access to {channel.mention} must react with ✅ within 24 hours "
+            f"or they will be demoted one rank."
+        ),
+        color=discord.Color.green()
+    )
+    embed.set_footer(text=f"Initiated by {interaction.user.display_name} • Made by zeemonyt")
+    await interaction.response.send_message(embed=embed)
 
 
 # --- STRIKE / INFRACTION COMMAND ---

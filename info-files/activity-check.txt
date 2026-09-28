@@ -1,0 +1,17 @@
+{
+  "content": "<@&1538076681586217031>",
+  "embeds": [
+    {
+      "title": "Activity Check!",
+      "description": "Please react with :white_check_mark: if you see this message. \nIf you are detected not reacting, you will be demoted.",
+      "color": null,
+      "author": {
+        "name": "LASD Activity Check"
+      },
+      "footer": {
+        "text": "Made by zeemonyt."
+      }
+    }
+  ],
+  "attachments": []
+}
