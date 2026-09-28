@@ -1368,12 +1368,6 @@ async def check_for_shift_farming():
             save_shift_data()
 
 
-# Role IDs that are required to meet weekly shift quota
-# Includes Web Panel role (verified staff) + all ranked roles from hierarchy
-QUOTA_ELIGIBLE_ROLE_IDS = {WEB_PANEL_ROLE_ID} | {role_id for role_id, _ in RANK_HIERARCHY}
-
-
-async def run_quota_reset(guild: discord.Guild = None, force: bool = False) -> bool:
     """Run the weekly quota reset logic. Returns True if reset was performed."""
     global last_quota_reset_date
     cst_zone = ZoneInfo("America/Chicago")
@@ -3779,6 +3773,10 @@ RANK_HIERARCHY = [
     (1538076681628028952, "Deputy"),
     (1550738635706601482, "Junior Deputy"),
 ]
+
+# Role IDs that are required to meet weekly shift quota
+# Includes Web Panel role (verified staff) + all ranked roles from hierarchy
+QUOTA_ELIGIBLE_ROLE_IDS = {WEB_PANEL_ROLE_ID} | {role_id for role_id, _ in RANK_HIERARCHY}
 
 # Activity check storage
 activity_check_data = {
