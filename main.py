@@ -1618,11 +1618,40 @@ class RobloxUsernameModal(discord.ui.Modal, title="Roblox Verification"):
         pending_verifications[interaction.user.id] = request
         save_verification_data()
 
+        verification_view = VerificationCodeView(interaction.user.id)
+        try:
+            await interaction.user.send(
+                embed=verification_embed(request),
+                view=verification_view,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "I couldn't DM you. Here are your verification instructions; "
+                "this private button panel expires after 15 minutes. Enable server DMs "
+                "and click **Verify now** again if it expires.",
+                embed=verification_embed(request),
+                view=VerificationCodeView(interaction.user.id),
+                ephemeral=True,
+                allowed_mentions=discord.AllowedMentions.none()
+            )
+            return
+        except discord.HTTPException as error:
+            print(
+                f"Error: Could not send verification DM to user "
+                f"{interaction.user.id}: HTTP {error.status}."
+            )
+            await interaction.followup.send(
+                "I couldn't send your verification instructions. Please try again or "
+                "enable server DMs and click **Verify now** again.",
+                ephemeral=True
+            )
+            return
+
         await interaction.followup.send(
-            embed=verification_embed(request),
-            view=VerificationCodeView(interaction.user.id),
-            ephemeral=True,
-            allowed_mentions=discord.AllowedMentions.none()
+            "I sent your Roblox verification code and persistent Verify buttons in DMs. "
+            "The buttons remain available while you update your bio.",
+            ephemeral=True
         )
 
 
