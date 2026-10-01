@@ -1,0 +1,1 @@
+- [Persistent Discord controls](discord-persistent-controls.md) — register view handlers before awaited startup work; a connected gateway does not mean button callbacks are ready.

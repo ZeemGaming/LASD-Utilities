@@ -40,6 +40,11 @@
   backdrop-filter: blur(6px);
   background-color: rgba(41, 41, 41, 0.41);
 }
+
+.home-container3.opacity-\[0\] {
+  opacity: 0;
+  pointer-events: none;
+}
  
 .home-icon1 {
   width: 24px;
