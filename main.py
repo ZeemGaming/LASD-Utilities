@@ -1368,6 +1368,10 @@ async def check_for_shift_farming():
             save_shift_data()
 
 
+async def run_quota_reset(
+    guild: discord.Guild | None = None,
+    force: bool = False
+) -> bool:
     """Run the weekly quota reset logic. Returns True if reset was performed."""
     global last_quota_reset_date
     cst_zone = ZoneInfo("America/Chicago")
@@ -1618,7 +1622,7 @@ class RobloxUsernameModal(discord.ui.Modal, title="Roblox Verification"):
         pending_verifications[interaction.user.id] = request
         save_verification_data()
 
-        verification_view = VerificationCodeView(interaction.user.id)
+        verification_view = VerificationCodeView()
         try:
             await interaction.user.send(
                 embed=verification_embed(request),
@@ -1631,7 +1635,7 @@ class RobloxUsernameModal(discord.ui.Modal, title="Roblox Verification"):
                 "this private button panel expires after 15 minutes. Enable server DMs "
                 "and click **Verify now** again if it expires.",
                 embed=verification_embed(request),
-                view=VerificationCodeView(interaction.user.id),
+                view=VerificationCodeView(),
                 ephemeral=True,
                 allowed_mentions=discord.AllowedMentions.none()
             )
@@ -1659,6 +1663,28 @@ class VerificationStartView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item
+    ) -> None:
+        print(f"Error in verification start button: {error}")
+        message = "The verification button encountered an error. Please try again."
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    message,
+                    ephemeral=bool(interaction.guild)
+                )
+            else:
+                await interaction.response.send_message(
+                    message,
+                    ephemeral=bool(interaction.guild)
+                )
+        except discord.HTTPException as response_error:
+            print(f"Could not report verification button error: {response_error}")
+
     @discord.ui.button(
         label="Verify now",
         style=discord.ButtonStyle.primary,
@@ -1679,32 +1705,64 @@ class VerificationStartView(discord.ui.View):
 
 
 class VerificationCodeView(discord.ui.View):
-    def __init__(self, user_id: int):
+    def __init__(self, user_id: int | None = None):
         super().__init__(timeout=None)
         self.user_id = user_id
 
+        verify_custom_id = (
+            f"verification:verify:{user_id}"
+            if user_id is not None
+            else "verification:verify"
+        )
         verify_button = discord.ui.Button(
             label="Verify",
             style=discord.ButtonStyle.success,
-            custom_id=f"verification:verify:{user_id}"
+            custom_id=verify_custom_id
         )
         verify_button.callback = self.verify_code
         self.add_item(verify_button)
 
+        regenerate_custom_id = (
+            f"verification:regenerate:{user_id}"
+            if user_id is not None
+            else "verification:regenerate"
+        )
         regenerate_button = discord.ui.Button(
             label="Words tagged role",
             style=discord.ButtonStyle.secondary,
-            custom_id=f"verification:regenerate:{user_id}"
+            custom_id=regenerate_custom_id
         )
         regenerate_button.callback = self.regenerate_code
         self.add_item(regenerate_button)
 
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item
+    ) -> None:
+        print(f"Error in verification code button: {error}")
+        message = "The verification button encountered an error. Please try again."
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(
+                    message,
+                    ephemeral=bool(interaction.guild)
+                )
+            else:
+                await interaction.response.send_message(
+                    message,
+                    ephemeral=bool(interaction.guild)
+                )
+        except discord.HTTPException as response_error:
+            print(f"Could not report verification button error: {response_error}")
+
     async def _check_owner(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id == self.user_id:
+        if self.user_id is None or interaction.user.id == self.user_id:
             return True
         await interaction.response.send_message(
             "This verification request belongs to another user.",
-            ephemeral=True
+            ephemeral=bool(interaction.guild)
         )
         return False
 
@@ -1712,18 +1770,21 @@ class VerificationCodeView(discord.ui.View):
         if not await self._check_owner(interaction):
             return
 
-        request = pending_verifications.get(self.user_id)
+        user_id = self.user_id if self.user_id is not None else interaction.user.id
+        await interaction.response.defer()
+
+        request = pending_verifications.get(user_id)
         if not request:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "This verification request has expired. Click **Verify now** to start again.",
-                ephemeral=True
+                ephemeral=bool(interaction.guild)
             )
             return
 
         request["code"] = generate_verification_code()
         request["created_at"] = int(time.time())
         save_verification_data()
-        await interaction.response.edit_message(
+        await interaction.edit_original_response(
             embed=verification_embed(request),
             view=VerificationCodeView(self.user_id)
         )
@@ -1732,15 +1793,16 @@ class VerificationCodeView(discord.ui.View):
         if not await self._check_owner(interaction):
             return
 
-        request = pending_verifications.get(self.user_id)
+        await interaction.response.defer()
+        user_id = self.user_id if self.user_id is not None else interaction.user.id
+        request = pending_verifications.get(user_id)
         if not request:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "This verification request has expired. Click **Verify now** to start again.",
-                ephemeral=True
+                ephemeral=bool(interaction.guild)
             )
             return
 
-        await interaction.response.defer(ephemeral=True)
         try:
             roblox_profile = await fetch_roblox_profile(request["roblox_user_id"])
         except Exception as error:
@@ -1750,7 +1812,7 @@ class VerificationCodeView(discord.ui.View):
             )
             await interaction.followup.send(
                 "I couldn't check your Roblox bio right now. Please try again in a moment.",
-                ephemeral=True
+                ephemeral=bool(interaction.guild)
             )
             return
 
@@ -1758,7 +1820,7 @@ class VerificationCodeView(discord.ui.View):
             await interaction.followup.send(
                 "The verification code was not found in your Roblox bio. "
                 "Add it exactly, save your bio, and try again.",
-                ephemeral=True
+                ephemeral=bool(interaction.guild)
             )
             return
 
@@ -1766,14 +1828,14 @@ class VerificationCodeView(discord.ui.View):
         if not guild:
             await interaction.followup.send(
                 "I couldn't find the staff server. Please try again later.",
-                ephemeral=True
+                ephemeral=bool(interaction.guild)
             )
             return
 
-        member = guild.get_member(self.user_id)
+        member = guild.get_member(user_id)
         if not member:
             try:
-                member = await guild.fetch_member(self.user_id)
+                member = await guild.fetch_member(user_id)
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 member = None
 
@@ -1782,7 +1844,7 @@ class VerificationCodeView(discord.ui.View):
             await interaction.followup.send(
                 "I couldn't find your server member record or the verification role. "
                 "Please contact an administrator.",
-                ephemeral=True
+                ephemeral=bool(interaction.guild)
             )
             return
 
@@ -1791,7 +1853,7 @@ class VerificationCodeView(discord.ui.View):
         except (discord.Forbidden, discord.HTTPException):
             await interaction.followup.send(
                 "I couldn't assign the verification role. Please contact an administrator.",
-                ephemeral=True
+                ephemeral=bool(interaction.guild)
             )
             return
 
@@ -1805,10 +1867,10 @@ class VerificationCodeView(discord.ui.View):
             nickname_updated = False
             print(
                 f"Warning: Could not set Discord nickname for verified user "
-                f"{self.user_id}."
+                f"{user_id}."
             )
 
-        pending_verifications.pop(self.user_id, None)
+        pending_verifications.pop(user_id, None)
         save_verification_data()
         result_message = (
             f"Verification complete. You received the <@&{VERIFIED_ROLE_ID}> role "
@@ -1820,7 +1882,7 @@ class VerificationCodeView(discord.ui.View):
             )
         await interaction.followup.send(
             result_message,
-            ephemeral=True,
+            ephemeral=bool(interaction.guild),
             allowed_mentions=discord.AllowedMentions.none()
         )
 
@@ -1832,6 +1894,7 @@ def register_verification_views() -> None:
         return
 
     bot.add_view(VerificationStartView())
+    bot.add_view(VerificationCodeView())
     for user_id in pending_verifications:
         bot.add_view(VerificationCodeView(user_id))
     verification_views_registered = True
@@ -2224,6 +2287,13 @@ async def on_ready():
     load_merit_transactions()
     print(f"[BOT LOG] Logged in as {bot.user} (ID: {bot.user.id}), ready={bot.is_ready()}, guilds={[g.name for g in bot.guilds]}")
 
+    register_verification_views()
+    register_market_views()
+    print(
+        f"[BOT LOG] Registered persistent verification controls "
+        f"for {len(pending_verifications)} pending request(s)."
+    )
+
     if not weekly_quota_reset.is_running():
         weekly_quota_reset.start()
 
@@ -2231,9 +2301,6 @@ async def on_ready():
     guild = bot.get_guild(GUILD_ID)
     if guild:
         await run_quota_reset(guild=guild)
-
-    register_verification_views()
-    register_market_views()
 
     try:
         if GUILD_ID:
