@@ -1,5 +1,7 @@
 import os
+import secrets
 import subprocess
+import google
 print("Alive!")
 
 # Completely purge the Replit system database variables out of memory

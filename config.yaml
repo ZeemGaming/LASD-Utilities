@@ -1,30 +1,122 @@
 model_list:
-  # === 1. PRIMARY: OPENROUTER 550B HEAVY REASONING TRACK ===
-  - model_name: openrouter-primary
+  # === 1. OpenRouter Catchmap 1 ===
+  - model_name: openrouter-catchmap1
     litellm_params:
-      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-      api_key: "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"
+      model: openrouter/@preset/catchmap-1
+      api_key: os.environ/OR_API_KEY
       max_tokens: 4096
 
-  # === 2. BACKUP: GROQ LIGHTNING-FAST EXTENDED TRACK ===
-  - model_name: groq-backup
+
+  # === 2. OpenRouter Catchmap 2 ===
+  - model_name: openrouter-catchmap2
     litellm_params:
-      model: groq/llama-3.3-70b-specdec
-      api_key: "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"
+      model: openrouter/@preset/catchmap-2
+      api_key: os.environ/OR_API_KEY
       max_tokens: 4096
 
-  # --- Target Catch Variable Map (Initially targets OpenRouter) ---
+# Removed the real 2
+
+  # === 3. Backup 2: Gemini 3.8 Flash ===
+  - model_name: gemini-3-8-f
+    litellm_params:
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 4. Backup 3: Gemini 3 Pro Preview ===
+  - model_name: gemini-3-p-pv
+    litellm_params:
+      model: gemini/gemini-3.1-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 5. Backup 4: Gemini 3.6 Flash ===
+  - model_name: gemini-3-6-f
+    litellm_params:
+      model: gemini/gemini-3.6-flash
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 6. Backup 5: Gemini 3 Flash Preview ===
+  - model_name: gemini-3-f-pv
+    litellm_params:
+      model: gemini/gemini-3-flash-preview
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 7. Backup 6: Gemini 3.7 Flash ===
+  - model_name: gemini-3-7-f
+    litellm_params:
+      model: gemini/gemini-3.7-flash
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 8. Backup 7: Gemini 3.5 Flash ===
+#   - model_name: gemini-3-5-f
+#    litellm_params:
+#      model: gemini/gemini-3.5-flash
+#      api_key: os.environ/GEMINI_API_KEY
+#      api_base: "https://generativelanguage.googleapis.com/v1beta"
+#      max_tokens: 4096
+
+  # === 9. Backup 8: Gemini 3.5 Flash Lite ===
+  - model_name: gemini-3-5-fl
+    litellm_params:
+      model: gemini/gemini-3.5-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 10. Backup 9: Gemini 3.1 Flash Lite ===
+  - model_name: gemini-3-1-fl
+    litellm_params:
+      model: gemini/gemini-3.1-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 11. Backup 10: Gemini Antigravity ===
+  - model_name: gemini-antigravity
+    litellm_params:
+      model: gemini/antigravity-preview-09-2026
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: "https://generativelanguage.googleapis.com/v1beta"
+      max_tokens: 4096
+
+  # === 12. OpenRouter Catchmap 3 ===
+  - model_name: openrouter-catchmap3
+    litellm_params:
+      model: openrouter/@preset/catchmap-3
+      api_key: os.environ/OR_API_KEY
+      max_tokens: 4096
+
+  # --- Main Map ---
   - model_name: claude-3-5-sonnet
     litellm_params:
       model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-      api_key: "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"
+      api_key: os.environ/OR_API_KEY
       max_tokens: 4096
 
 router_settings:
-  num_retries: 2
+  num_retries: 3
   cooldown_time: 30
   allowed_fails: 1
-  failover_on_streaming_errors: true
+  enable_stream_fallbacks: true
   fallbacks:
-    - claude-3-5-sonnet: ["openrouter-primary", "groq-backup"]
-    - openrouter-primary: ["groq-backup"]
+    - claude-3-5-sonnet: 
+        - openrouter-catchmap1
+        - openrouter-catchmap2
+        - openrouter-catchmap3
+        - gemini-3-8-f
+        - gemini-3-p-pv
+        - gemini-3-6-f
+        - gemini-3-f-pv
+        - gemini-3-7-f
+        - gemini-3-5-fl
+        - gemini-3-1-fl
+        - gemini-antigravity

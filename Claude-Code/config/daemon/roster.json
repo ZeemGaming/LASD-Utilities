@@ -1,89 +1,31 @@
 {
   "proto": 1,
-  "supervisorPid": 401,
-  "updatedAt": 1789261884492,
+  "supervisorPid": 352,
+  "updatedAt": 1791818352713,
   "workers": {
-    "3c2defd5": {
-      "pid": 412,
-      "procStart": "129676",
-      "sessionId": "3c2defd5-4a88-4549-aecd-b80ca22f3d05",
-      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/3c2defd5.sock",
-      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/pty/3c2defd5.sock",
-      "cliVersion": "2.1.270",
-      "startedAt": 1789261830168,
+    "b6ae3937": {
+      "pid": 364,
+      "procStart": "210888",
+      "sessionId": "b6ae3937-2ccf-4dc7-ab66-24fd9c80c6aa",
+      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/b6ae3937.sock",
+      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/pty/b6ae3937.sock",
+      "cliVersion": "2.1.296",
+      "startedAt": 1791818334718,
       "attempt": 1,
       "cwd": "/home/runner/workspace",
       "dispatch": {
         "proto": 1,
-        "short": "3c2defd5",
-        "nonce": "19b7f114",
-        "sessionId": "3c2defd5-4a88-4549-aecd-b80ca22f3d05",
-        "createdAt": 1789261829334,
-        "source": "slash",
-        "cwd": "/home/runner/workspace",
-        "launch": {
-          "mode": "prompt",
-          "args": [
-            "--session-id",
-            "3c2defd5-4a88-4549-aecd-b80ca22f3d05",
-            "--permission-mode",
-            "default"
-          ],
-          "restoresTranscript": false
-        },
-        "env": {
-          "CLAUDE_CONFIG_DIR": "/home/runner/workspace/Claude-Code/config/",
-          "ANTHROPIC_MODEL": "claude-3-5-sonnet",
-          "CLAUDE_BG_ISOLATION": "none"
-        },
-        "isolation": "none",
-        "respawnFlags": [
-          "--permission-mode",
-          "default"
-        ],
-        "seed": {
-          "intent": ""
-        },
-        "cols": 84,
-        "rows": 41
-      },
-      "decModes": [
-        1000,
-        1002,
-        1003,
-        1006,
-        2004,
-        2031,
-        1004
-      ],
-      "rvAuth": "8a57d18914db059bf996570a0479ec80",
-      "ptyAuth": "898f8e3c51abbd850be2f4e6280e6e5e",
-      "replPid": 430,
-      "replProcStart": "129687"
-    },
-    "3b2ee745": {
-      "pid": 411,
-      "procStart": "129676",
-      "sessionId": "3b2ee745-e9d7-4696-af37-46ac8529ee2a",
-      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/3b2ee745.sock",
-      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/spare/e546b2dc.pty.sock",
-      "cliVersion": "2.1.270",
-      "startedAt": 1789261871182,
-      "attempt": 1,
-      "cwd": "/home/runner/workspace",
-      "dispatch": {
-        "proto": 1,
-        "short": "3b2ee745",
-        "nonce": "5629b594",
-        "sessionId": "3b2ee745-e9d7-4696-af37-46ac8529ee2a",
-        "createdAt": 1789261871169,
+        "short": "b6ae3937",
+        "nonce": "1a9e4f83",
+        "sessionId": "b6ae3937-2ccf-4dc7-ab66-24fd9c80c6aa",
+        "createdAt": 1791818333935,
         "source": "spare",
         "cwd": "/home/runner/workspace",
         "launch": {
           "mode": "prompt",
           "args": [
             "--session-id",
-            "3b2ee745-e9d7-4696-af37-46ac8529ee2a",
+            "b6ae3937-2ccf-4dc7-ab66-24fd9c80c6aa",
             "--agent",
             "claude",
             "--inherit-permission-mode",
@@ -93,7 +35,8 @@
         },
         "env": {
           "CLAUDE_CONFIG_DIR": "/home/runner/workspace/Claude-Code/config/",
-          "ANTHROPIC_MODEL": "claude-3-5-sonnet"
+          "ANTHROPIC_MODEL": "claude-3-5-sonnet",
+          "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"
         },
         "isolation": "none",
         "respawnFlags": [
@@ -106,248 +49,97 @@
         "seed": {
           "intent": ""
         },
-        "cols": 84,
+        "cols": 89,
         "rows": 41
       },
       "decModes": [
+        2004,
+        2031,
+        1004,
         1000,
         1002,
         1003,
-        1006,
-        2004,
-        2031,
-        1004
+        1006
       ],
-      "rvAuth": "c81510f0f27fd5b9dbb6994f2f06f4e7",
-      "ptyAuth": "8eb1b9fc4ab786780b7026c90ee23c12",
-      "replPid": 433,
-      "replProcStart": "129690"
+      "rvAuth": "44f419257afacfe257247560e6b6d0e2",
+      "ptyAuth": "16d3c6d544d1be43af4182cde242c82e",
+      "replPid": 382,
+      "replProcStart": "210896"
     },
-    "34f7db12": {
-      "pid": 772,
-      "procStart": "133779",
-      "sessionId": "34f7db12-9864-4a8a-a1bc-d567d7cc019e",
-      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/34f7db12.sock",
-      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/pty/34f7db12.sock",
-      "cliVersion": "2.1.270",
-      "startedAt": 1789261871186,
+    "37d58784": {
+      "pid": 362,
+      "procStart": "210888",
+      "sessionId": "37d58784-b024-4a9d-93e3-1817a363073c",
+      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/37d58784.sock",
+      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/spare/781960ff.pty.sock",
+      "cliVersion": "2.1.296",
+      "startedAt": 1791818351629,
       "attempt": 1,
       "cwd": "/home/runner/workspace",
       "dispatch": {
         "proto": 1,
-        "short": "34f7db12",
-        "nonce": "3150fc6e",
-        "sessionId": "34f7db12-9864-4a8a-a1bc-d567d7cc019e",
-        "createdAt": 1789261871134,
-        "source": "slash",
+        "short": "37d58784",
+        "nonce": "d27a3ddc",
+        "sessionId": "37d58784-b024-4a9d-93e3-1817a363073c",
+        "createdAt": 1791818351622,
+        "source": "fleet",
         "cwd": "/home/runner/workspace",
         "launch": {
           "mode": "resume",
-          "sessionId": "/home/runner/workspace/Claude-Code/config/projects/-home-runner-workspace/84accf9f-e1e9-48e0-b82d-e79e444810af.jsonl",
+          "sessionId": "/home/runner/workspace/Claude-Code/config/projects/-home-runner-workspace/e7657148-f139-47b1-ad0c-fdf4899a967a.jsonl",
           "fork": true,
           "flagArgs": [
             "--permission-mode",
-            "default"
+            "acceptEdits",
+            "--model",
+            "claude-3-5-sonnet"
           ],
           "restoresTranscript": true
         },
         "env": {
           "CLAUDE_CONFIG_DIR": "/home/runner/workspace/Claude-Code/config/",
           "ANTHROPIC_MODEL": "claude-3-5-sonnet",
+          "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
           "CLAUDE_BG_ISOLATION": "none"
         },
         "isolation": "none",
         "respawnFlags": [
           "--permission-mode",
-          "default"
-        ],
-        "seed": {
-          "intent": "For the website, make a admin.json. When someone verifies with the OAUTH flow, make it so that instead of saving their user ID (very insecure) it generates a 15-30 alphanumerical (numbers and letters)"
-        },
-        "cols": 84,
-        "rows": 41
-      },
-      "decModes": [
-        1000,
-        1002,
-        1003,
-        1006,
-        2004,
-        2031,
-        1004
-      ],
-      "firedInteractiveMarks": [
-        {
-          "kind": "content_paint",
-          "msgsLoaded": 15,
-          "msgsInJsonl": 15,
-          "msgsRenderedAtFirstPaint": 17
-        },
-        {
-          "kind": "prompt_idle"
-        }
-      ],
-      "rvAuth": "3e2970dbb66f38b7d0244d1481ef3283",
-      "ptyAuth": "e6609a0475b954e8b53834e82832d052",
-      "replPid": 791,
-      "replProcStart": "133794"
-    },
-    "d5244716": {
-      "pid": 771,
-      "procStart": "133778",
-      "sessionId": "d5244716-eda3-46a4-9822-6cec62efdd77",
-      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/d5244716.sock",
-      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/spare/efc688ce.pty.sock",
-      "cliVersion": "2.1.270",
-      "startedAt": 1789261874408,
-      "attempt": 1,
-      "cwd": "/home/runner/workspace",
-      "dispatch": {
-        "proto": 1,
-        "short": "d5244716",
-        "nonce": "bda5fb3e",
-        "sessionId": "d5244716-eda3-46a4-9822-6cec62efdd77",
-        "createdAt": 1789261874403,
-        "source": "fleet",
-        "cwd": "/home/runner/workspace",
-        "launch": {
-          "mode": "resume",
-          "sessionId": "d5244716-eda3-46a4-9822-6cec62efdd77",
-          "transcriptPath": "/home/runner/workspace/Claude-Code/config/projects/-home-runner-workspace--claude-worktrees-abstract-juggling-starlight/d5244716-eda3-46a4-9822-6cec62efdd77.jsonl",
-          "fork": false,
-          "flagArgs": [
-            "--agent",
-            "claude",
-            "--permission-mode",
-            "acceptEdits",
-            "--model",
-            "claude-3-5-sonnet"
-          ],
-          "restoresTranscript": true
-        },
-        "env": {
-          "CLAUDE_CONFIG_DIR": "/home/runner/workspace/Claude-Code/config/",
-          "ANTHROPIC_MODEL": "claude-3-5-sonnet"
-        },
-        "isolation": "none",
-        "respawnFlags": [
-          "--agent",
-          "claude",
-          "--permission-mode",
           "acceptEdits",
           "--model",
           "claude-3-5-sonnet"
         ],
-        "agent": "claude",
         "seed": {
           "intent": "",
-          "name": "citation log routing"
+          "name": "Workspace Codebase"
         },
-        "cols": 84,
+        "cols": 89,
         "rows": 41
       },
       "decModes": [
+        2004,
+        2031,
+        1004,
         1000,
         1002,
         1003,
-        1006,
-        2004,
-        2031,
-        1004
+        1006
       ],
       "firedInteractiveMarks": [
         {
           "kind": "content_paint",
-          "msgsLoaded": 96,
-          "msgsInJsonl": 96,
-          "msgsRenderedAtFirstPaint": 96
+          "msgsLoaded": 609,
+          "msgsInJsonl": 609,
+          "msgsRenderedAtFirstPaint": 610
         },
         {
           "kind": "prompt_idle"
         }
       ],
-      "rvAuth": "220a645acbe0bdc1fdb318361d699233",
-      "ptyAuth": "8ddf79ce605b8882da36b5692e7ac4b1",
-      "replPid": 788,
-      "replProcStart": "133790"
-    },
-    "a0e85a39": {
-      "pid": 903,
-      "procStart": "134101",
-      "sessionId": "a0e85a39-5438-4cb8-8547-9bcdce0dfb5b",
-      "rendezvousSock": "/tmp/cc-daemon-1000/7bbd835f/rv/a0e85a39.sock",
-      "ptySock": "/tmp/cc-daemon-1000/7bbd835f/spare/9a90e7ab.pty.sock",
-      "cliVersion": "2.1.270",
-      "startedAt": 1789261883921,
-      "attempt": 1,
-      "cwd": "/home/runner/workspace",
-      "dispatch": {
-        "proto": 1,
-        "short": "a0e85a39",
-        "nonce": "4adaf9e7",
-        "sessionId": "a0e85a39-5438-4cb8-8547-9bcdce0dfb5b",
-        "createdAt": 1789261883917,
-        "source": "fleet",
-        "cwd": "/home/runner/workspace",
-        "launch": {
-          "mode": "resume",
-          "sessionId": "a0e85a39-5438-4cb8-8547-9bcdce0dfb5b",
-          "transcriptPath": "/home/runner/workspace/Claude-Code/config/projects/-home-runner-workspace/a0e85a39-5438-4cb8-8547-9bcdce0dfb5b.jsonl",
-          "fork": false,
-          "flagArgs": [
-            "--agent",
-            "claude",
-            "--permission-mode",
-            "acceptEdits",
-            "--model",
-            "claude-3-5-sonnet"
-          ],
-          "restoresTranscript": true
-        },
-        "env": {
-          "CLAUDE_CONFIG_DIR": "/home/runner/workspace/Claude-Code/config/",
-          "ANTHROPIC_MODEL": "claude-3-5-sonnet"
-        },
-        "isolation": "none",
-        "respawnFlags": [
-          "--agent",
-          "claude",
-          "--permission-mode",
-          "acceptEdits",
-          "--model",
-          "claude-3-5-sonnet"
-        ],
-        "agent": "claude",
-        "seed": {
-          "intent": ""
-        },
-        "cols": 84,
-        "rows": 41
-      },
-      "decModes": [
-        1000,
-        1002,
-        1003,
-        1006,
-        2004,
-        2031,
-        1004
-      ],
-      "firedInteractiveMarks": [
-        {
-          "kind": "content_paint",
-          "msgsLoaded": 11,
-          "msgsInJsonl": 11,
-          "msgsRenderedAtFirstPaint": 11
-        },
-        {
-          "kind": "prompt_idle"
-        }
-      ],
-      "rvAuth": "af0f3c90e795abfc952224c3579a4a39",
-      "ptyAuth": "13f889dc2e7b77718319f9bb5ec59171",
-      "replPid": 914,
-      "replProcStart": "134115"
+      "rvAuth": "dbf30f6c1007d4ff10eebf95d9f35bc3",
+      "ptyAuth": "a21956c469b2ec7d57c6568e4b35029a",
+      "replPid": 380,
+      "replProcStart": "210895"
     }
   }
 }

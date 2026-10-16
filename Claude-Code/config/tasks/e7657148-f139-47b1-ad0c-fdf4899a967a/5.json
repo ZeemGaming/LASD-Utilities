@@ -1,0 +1,9 @@
+{
+  "id": "5",
+  "subject": "Add Discord rate limit handler with backoff",
+  "description": "Create a rate limit aware wrapper for Discord API calls with exponential backoff, bucket tracking, and 429 handling",
+  "activeForm": "Adding rate limit handler",
+  "status": "pending",
+  "blocks": [],
+  "blockedBy": []
+}

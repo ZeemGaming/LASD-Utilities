@@ -12,6 +12,255 @@ from aiohttp import ClientSession, ClientTimeout, web
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
+from discord.errors import HTTPException, NotFound, Forbidden
+
+
+class RateLimitHandler:
+    """Handles Discord API rate limits with exponential backoff and bucket tracking."""
+
+    def __init__(self):
+        self.buckets: dict[str, dict] = {}
+        self.global_lock = asyncio.Lock()
+        self.global_reset: float = 0
+
+    def _get_bucket_key(self, method: str, path: str, major_params: dict = None) -> str:
+        """Generate a bucket key for the rate limit bucket."""
+        if major_params:
+            param_str = "&".join(f"{k}={v}" for k, v in sorted(major_params.items()))
+            return f"{method}:{path}:{param_str}"
+        return f"{method}:{path}"
+
+    async def _wait_for_bucket(self, bucket_key: str) -> None:
+        """Wait if the bucket is rate limited."""
+        async with self.global_lock:
+            bucket = self.buckets.get(bucket_key)
+            if not bucket:
+                return
+
+            now = time.time()
+            if bucket.get("reset_at", 0) > now:
+                wait_time = bucket["reset_at"] - now + 0.1  # Small buffer
+                await asyncio.sleep(wait_time)
+
+    def _update_bucket(self, bucket_key: str, headers: dict) -> None:
+        """Update bucket state from response headers."""
+        # Discord rate limit headers:
+        # X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Reset-After
+        # X-RateLimit-Bucket, X-RateLimit-Scope
+        bucket = self.buckets.setdefault(bucket_key, {})
+
+        if "X-RateLimit-Remaining" in headers:
+            bucket["remaining"] = int(headers["X-RateLimit-Remaining"])
+
+        if "X-RateLimit-Reset-After" in headers:
+            reset_after = float(headers["X-RateLimit-Reset-After"])
+            bucket["reset_at"] = time.time() + reset_after
+        elif "X-RateLimit-Reset" in headers:
+            reset_ts = float(headers["X-RateLimit-Reset"])
+            bucket["reset_at"] = reset_ts
+
+        if "X-RateLimit-Bucket" in headers:
+            bucket["bucket_id"] = headers["X-RateLimit-Bucket"]
+
+        if "X-RateLimit-Global" in headers and headers["X-RateLimit-Global"] == "true":
+            self.global_reset = time.time() + float(headers.get("X-RateLimit-Reset-After", 1))
+
+    def _handle_429(self, bucket_key: str, headers: dict) -> float:
+        """Calculate wait time from 429 response."""
+        # 429 response includes Retry-After header (seconds)
+        retry_after = float(headers.get("Retry-After", 1))
+        # Add jitter to prevent thundering herd
+        jitter = random.uniform(0, 0.5)
+        total_wait = retry_after + jitter
+
+        bucket = self.buckets.setdefault(bucket_key, {})
+        bucket["reset_at"] = time.time() + total_wait
+        bucket["remaining"] = 0
+
+        return total_wait
+
+    async def execute_with_retry(
+        self,
+        coro_factory,
+        bucket_key: str,
+        max_retries: int = 3,
+        base_delay: float = 1.0
+    ):
+        """Execute a coroutine with rate limit handling and exponential backoff."""
+        await self._wait_for_bucket(bucket_key)
+
+        for attempt in range(max_retries):
+            try:
+                result = await coro_factory()
+                return result
+            except HTTPException as e:
+                if e.status == 429:
+                    # Rate limited - wait and retry
+                    wait_time = self._handle_429(bucket_key, e.response.headers if e.response else {})
+                    print(f"[RATE LIMIT] Hit 429 on {bucket_key}, waiting {wait_time:.2f}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    continue
+                elif e.status == 403:
+                    # Forbidden - don't retry
+                    raise
+                elif e.status >= 500:
+                    # Server error - retry with backoff
+                    delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                    print(f"[RATE LIMIT] Server error {e.status} on {bucket_key}, retrying in {delay:.2f}s")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Other client errors - don't retry
+                    raise
+            except (NotFound, Forbidden):
+                # Don't retry these
+                raise
+            except Exception as e:
+                # Unexpected error - retry with backoff
+                delay = base_delay * (2 ** attempt) + random.uniform(0, 0.5)
+                print(f"[RATE LIMIT] Unexpected error on {bucket_key}: {e}, retrying in {delay:.2f}s")
+                await asyncio.sleep(delay)
+
+        # All retries exhausted
+        raise HTTPException(None, f"Max retries ({max_retries}) exceeded for {bucket_key}")
+
+
+# Global rate limit handler
+rate_limiter = RateLimitHandler()
+
+
+async def safe_send(channel, *args, **kwargs):
+    """Send a message with rate limit handling."""
+    bucket_key = f"POST:/channels/{channel.id}/messages"
+    return await rate_limiter.execute_with_retry(
+        lambda: channel.send(*args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_edit(message, *args, **kwargs):
+    """Edit a message with rate limit handling."""
+    bucket_key = f"PATCH:/channels/{message.channel.id}/messages/{message.id}"
+    return await rate_limiter.execute_with_retry(
+        lambda: message.edit(*args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_delete(message, *args, **kwargs):
+    """Delete a message with rate limit handling."""
+    bucket_key = f"DELETE:/channels/{message.channel.id}/messages/{message.id}"
+    return await rate_limiter.execute_with_retry(
+        lambda: message.delete(*args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_add_reaction(message, emoji, *args, **kwargs):
+    """Add reaction with rate limit handling."""
+    bucket_key = f"PUT:/channels/{message.channel.id}/messages/{message.id}/reactions/{emoji}/@me"
+    return await rate_limiter.execute_with_retry(
+        lambda: message.add_reaction(emoji, *args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_fetch_guild(bot, guild_id, *args, **kwargs):
+    """Fetch guild with rate limit handling."""
+    bucket_key = f"GET:/guilds/{guild_id}"
+    return await rate_limiter.execute_with_retry(
+        lambda: bot.fetch_guild(guild_id, *args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_fetch_channel(guild, channel_id, *args, **kwargs):
+    """Fetch channel with rate limit handling."""
+    bucket_key = f"GET:/channels/{channel_id}"
+    return await rate_limiter.execute_with_retry(
+        lambda: guild.fetch_channel(channel_id, *args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_fetch_member(guild, user_id, *args, **kwargs):
+    """Fetch member with rate limit handling."""
+    bucket_key = f"GET:/guilds/{guild.id}/members/{user_id}"
+    return await rate_limiter.execute_with_retry(
+        lambda: guild.fetch_member(user_id, *args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_fetch_user(bot, user_id, *args, **kwargs):
+    """Fetch user with rate limit handling."""
+    bucket_key = f"GET:/users/{user_id}"
+    return await rate_limiter.execute_with_retry(
+        lambda: bot.fetch_user(user_id, *args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_edit_member(member, *args, **kwargs):
+    """Edit member (nickname, roles) with rate limit handling."""
+    bucket_key = f"PATCH:/guilds/{member.guild.id}/members/{member.id}"
+    return await rate_limiter.execute_with_retry(
+        lambda: member.edit(*args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_add_roles(member, *roles, **kwargs):
+    """Add roles with rate limit handling."""
+    bucket_key = f"PUT:/guilds/{member.guild.id}/members/{member.id}/roles"
+    return await rate_limiter.execute_with_retry(
+        lambda: member.add_roles(*roles, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_remove_roles(member, *roles, **kwargs):
+    """Remove roles with rate limit handling."""
+    bucket_key = f"DELETE:/guilds/{member.guild.id}/members/{member.id}/roles"
+    return await rate_limiter.execute_with_retry(
+        lambda: member.remove_roles(*roles, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_send_dm(user, *args, **kwargs):
+    """Send a DM with rate limit handling."""
+    bucket_key = f"POST:/users/@me/channels"
+    # DMs use a different endpoint - create DM channel first, then send
+    async def _send_dm():
+        dm_channel = user.dm_channel or await user.create_dm()
+        return await dm_channel.send(*args, **kwargs)
+    return await rate_limiter.execute_with_retry(
+        _send_dm,
+        bucket_key,
+        max_retries=3
+    )
+
+
+async def safe_add_reaction_channel(channel, message_id, emoji, *args, **kwargs):
+    """Add reaction via channel with rate limit handling."""
+    bucket_key = f"PUT:/channels/{channel.id}/messages/{message_id}/reactions/{emoji}/@me"
+    return await rate_limiter.execute_with_retry(
+        lambda: channel.add_reaction(message_id, emoji, *args, **kwargs),
+        bucket_key,
+        max_retries=3
+    )
 
 # --- CONFIGURATION ---
 GUILD_ID = 1538076681565241384
@@ -216,7 +465,10 @@ async def discord_callback_handler(request: web.Request) -> web.StreamResponse:
     save_admin_tokens(admin_tokens)
 
     response = web.HTTPFound(location="/admin")
-    response.set_cookie("lasd_admin_auth", new_token, max_age=86400, secure=True, httponly=True, samesite="Lax")
+    # Use secure=True only when behind HTTPS (check X-Forwarded-Proto header)
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", request.scheme)
+    is_secure = forwarded_proto == "https"
+    response.set_cookie("lasd_admin_auth", new_token, max_age=86400, secure=is_secure, httponly=True, samesite="Lax")
     return response
 
 
@@ -257,14 +509,14 @@ def get_oauth_login_url(request: web.Request = None) -> str:
     return ""
 
 
-def get_auth_user_id(request: web.Request) -> int:
+def get_auth_user_id(request: web.Request) -> int | None:
     auth_cookie = request.cookies.get("lasd_admin_auth")
     if auth_cookie:
         admin_tokens = load_admin_tokens()
         user_id = admin_tokens.get(auth_cookie)
         if user_id is not None:
             return user_id
-    return 1422647977880584324
+    return None
 
 
 SHIFTS_FILE = "shifts.json"
@@ -273,18 +525,46 @@ MERIT_POINTS_FILE = "Merit-Points.json"
 
 
 def save_shift_data():
-    """Saves shift and record data to JSON files."""
+    """Saves shift and record data to JSON files (atomic writes)."""
+    # Atomic write for shifts
+    temp_path = None
     try:
-        with open(SHIFTS_FILE, "w") as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=".", prefix=".shifts-", suffix=".tmp", delete=False
+        ) as temp_file:
+            temp_path = temp_file.name
             json.dump({
                 "active": {str(k): v for k, v in active_shifts.items()},
                 "leaderboard": {str(k): v for k, v in shift_leaderboard_data.items()},
                 "last": {str(k): v for k, v in last_shifts.items()}
-            }, f, indent=4)
-        with open(RECORDS_FILE, "w") as f:
-            json.dump(records_list, f, indent=4)
+            }, temp_file, indent=4)
+            temp_file.write("\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, SHIFTS_FILE)
     except Exception as e:
-        print(f"Error saving data: {e}")
+        print(f"Error saving shifts: {e}")
+        if temp_path:
+            try: os.unlink(temp_path)
+            except: pass
+
+    # Atomic write for records
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=".", prefix=".records-", suffix=".tmp", delete=False
+        ) as temp_file:
+            temp_path = temp_file.name
+            json.dump(records_list, temp_file, indent=4)
+            temp_file.write("\n")
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+        os.replace(temp_path, RECORDS_FILE)
+    except Exception as e:
+        print(f"Error saving records: {e}")
+        if temp_path:
+            try: os.unlink(temp_path)
+            except: pass
 
 
 def load_shift_data():
@@ -334,42 +614,44 @@ def load_merit_points():
         save_merit_points()
 
 
-def add_merit_points(user_id: int, amount: int, source: str = "Unknown", description: str = "") -> int:
+async def add_merit_points(user_id: int, amount: int, source: str = "Unknown", description: str = "") -> int:
     """Add merit points to a user. Returns new total."""
     global merit_points, merit_transactions
-    merit_points[user_id] = merit_points.get(user_id, 0) + amount
-    save_merit_points()
+    async with merit_lock:
+        merit_points[user_id] = merit_points.get(user_id, 0) + amount
+        save_merit_points()
 
-    # Log transaction
-    if user_id not in merit_transactions:
-        merit_transactions[user_id] = []
-    merit_transactions[user_id].append({
-        "amount": amount,
-        "source": source,
-        "description": description,
-        "timestamp": int(time.time())
-    })
-    save_merit_transactions()
+        # Log transaction
+        if user_id not in merit_transactions:
+            merit_transactions[user_id] = []
+        merit_transactions[user_id].append({
+            "amount": amount,
+            "source": source,
+            "description": description,
+            "timestamp": int(time.time())
+        })
+        save_merit_transactions()
     return merit_points[user_id]
 
 
-def remove_merit_points(user_id: int, amount: int, source: str = "Admin", description: str = "") -> int:
+async def remove_merit_points(user_id: int, amount: int, source: str = "Admin", description: str = "") -> int:
     """Remove merit points from a user. Returns new total (min 0)."""
     global merit_points, merit_transactions
-    current = merit_points.get(user_id, 0)
-    merit_points[user_id] = max(0, current - amount)
-    save_merit_points()
+    async with merit_lock:
+        current = merit_points.get(user_id, 0)
+        merit_points[user_id] = max(0, current - amount)
+        save_merit_points()
 
-    # Log transaction
-    if user_id not in merit_transactions:
-        merit_transactions[user_id] = []
-    merit_transactions[user_id].append({
-        "amount": -amount,
-        "source": source,
-        "description": description,
-        "timestamp": int(time.time())
-    })
-    save_merit_transactions()
+        # Log transaction
+        if user_id not in merit_transactions:
+            merit_transactions[user_id] = []
+        merit_transactions[user_id].append({
+            "amount": -amount,
+            "source": source,
+            "description": description,
+            "timestamp": int(time.time())
+        })
+        save_merit_transactions()
     return merit_points[user_id]
 
 
@@ -461,9 +743,9 @@ async def admin_hr_handler(request: web.Request) -> web.StreamResponse:
 
 
 async def api_user_handler(request: web.Request) -> web.Response:
-    # user_id = get_auth_user_id(request)
-    # print(f"[API LOG] /api/user requested. Auth user_id: {user_id}, cookie present: {'lasd_admin_auth' in request.cookies}, bot.is_ready(): {bot.is_ready()}")
     user_id = get_auth_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": "Unauthorized"}, status=401)
 
     username = "LASD Deputy"
     avatar = "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f464.png"
@@ -475,28 +757,22 @@ async def api_user_handler(request: web.Request) -> web.Response:
             if not guild:
                 try:
                     guild = await asyncio.wait_for(bot.fetch_guild(GUILD_ID), timeout=3.0)
-                except Exception as e:
-                    # print(f"[API LOG] Error fetching guild {GUILD_ID}: {e}")
+                except Exception:
                     guild = None
 
-            # print(f"[API LOG] Guild found/fetched: {guild is not None}")
             member = None
             if guild:
                 member = guild.get_member(user_id)
-                # print(f"[API LOG] Member found in cache for user_id {user_id}: {member is not None}")
                 if not member:
                     try:
                         member = await asyncio.wait_for(guild.fetch_member(user_id), timeout=3.0)
-                        # print(f"[API LOG] Member fetched via API for user_id {user_id}: {member is not None}")
-                    except Exception as e:
-                        # print(f"[API LOG] Error fetching member {user_id} from guild {GUILD_ID}: {e}")
+                    except Exception:
                         member = None
 
             if member:
                 username = member.display_name
                 avatar = str(member.display_avatar.url)
                 roles = [r.name for r in member.roles if r.name != "@everyone"]
-                # print(f"[API LOG] Resolved user via Member: {username}, Roles: {roles}")
             else:
                 try:
                     user = await asyncio.wait_for(bot.fetch_user(user_id), timeout=3.0)
@@ -504,16 +780,10 @@ async def api_user_handler(request: web.Request) -> web.Response:
                         username = user.name
                         avatar = str(user.display_avatar.url)
                         roles = []
-                        # print(f"[API LOG] Resolved user via bot.fetch_user: {username}")
-                except Exception as e:
-                    # print(f"[API LOG] Error fetching user {user_id} via bot.fetch_user: {e}")
+                except Exception:
                     pass
-        except Exception as e:
-            # print(f"[API LOG] Exception in api_user_handler bot lookup: {e}")
+        except Exception:
             pass
-    else:
-        # print(f"[API LOG] Bot is not ready yet. Returning default profile.")
-        pass
 
     shift = active_shifts.get(user_id)
     shift_info = {
@@ -552,81 +822,93 @@ async def api_user_handler(request: web.Request) -> web.Response:
 
 async def api_shift_start_handler(request: web.Request) -> web.Response:
     user_id = get_auth_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": "Unauthorized"}, status=401)
 
-    if user_id in active_shifts:
-        return web.json_response({"error": "Shift already active"}, status=400)
+    async with shift_lock:
+        if user_id in active_shifts:
+            return web.json_response({"error": "Shift already active"}, status=400)
 
-    guild = bot.get_guild(GUILD_ID)
-    if not guild:
-        try:
-            guild = await bot.fetch_guild(GUILD_ID)
-        except Exception as e:
-            print(f"Error fetching guild {GUILD_ID}: {e}")
-
-    member = None
-    if guild:
-        member = guild.get_member(user_id)
-        if not member:
+        guild = bot.get_guild(GUILD_ID)
+        if not guild:
             try:
-                member = await guild.fetch_member(user_id)
+                guild = await bot.fetch_guild(GUILD_ID)
             except Exception as e:
-                print(f"Error fetching member {user_id} in guild: {e}")
+                print(f"Error fetching guild {GUILD_ID}: {e}")
 
-    if not member:
-        return web.json_response({"error": "Member not found in staff server (ensure bot is running and user is in server)"}, status=400)
+        member = None
+        if guild:
+            member = guild.get_member(user_id)
+            if not member:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except Exception as e:
+                    print(f"Error fetching member {user_id} in guild: {e}")
 
-    raw_nick = member.nick if member.nick else member.name
-    original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+        if not member:
+            return web.json_response({"error": "Member not found in staff server (ensure bot is running and user is in server)"}, status=400)
 
-    active_shifts[user_id] = {
-        "start_time": time.time(),
-        "original_nick": original_nick,
-        "break_time": 0.0,
-        "on_break": False,
-        "break_start": 0.0
-    }
-    save_shift_data()
+        raw_nick = member.nick if member.nick else member.name
+        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+
+        active_shifts[user_id] = {
+            "start_time": time.time(),
+            "original_nick": original_nick,
+            "break_time": 0.0,
+            "on_break": False,
+            "break_start": 0.0
+        }
+        save_shift_data()
     await apply_on_shift_nick(member, original_nick)
     return web.json_response({"success": True, "message": "Shift started successfully."})
 
 async def api_shift_break_handler(request: web.Request) -> web.Response:
     user_id = get_auth_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": "Unauthorized"}, status=401)
 
-    if user_id not in active_shifts:
-        return web.json_response({"error": "No active shift"}, status=400)
+    async with shift_lock:
+        if user_id not in active_shifts:
+            return web.json_response({"error": "No active shift"}, status=400)
 
-    shift_data = active_shifts[user_id]
-    if not shift_data["on_break"]:
-        shift_data["on_break"] = True
-        shift_data["break_start"] = time.time()
-        status = "break_started"
-    else:
-        break_duration = time.time() - shift_data["break_start"]
-        shift_data["break_time"] += break_duration
-        shift_data["on_break"] = False
-        shift_data["break_start"] = 0.0
-        status = "break_ended"
+        shift_data = active_shifts[user_id]
+        if not shift_data["on_break"]:
+            shift_data["on_break"] = True
+            shift_data["break_start"] = time.time()
+            status = "break_started"
+        else:
+            break_duration = time.time() - shift_data["break_start"]
+            shift_data["break_time"] += break_duration
+            shift_data["on_break"] = False
+            shift_data["break_start"] = 0.0
+            status = "break_ended"
 
-    return web.json_response({"success": True, "status": status})
+        save_shift_data()
+        return web.json_response({"success": True, "status": status})
 
 async def api_shift_end_handler(request: web.Request) -> web.Response:
     user_id = get_auth_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": "Unauthorized"}, status=401)
 
-    if user_id not in active_shifts:
-        return web.json_response({"error": "No active shift"}, status=400)
+    async with shift_lock:
+        if user_id not in active_shifts:
+            return web.json_response({"error": "No active shift"}, status=400)
 
-    shift_data = active_shifts.pop(user_id)
-    end_time = time.time()
-    total_break_time = shift_data["break_time"]
-    if shift_data["on_break"]:
-        total_break_time += (end_time - shift_data["break_start"])
+        shift_data = active_shifts.pop(user_id)
+        end_time = time.time()
+        total_break_time = shift_data["break_time"]
+        if shift_data["on_break"]:
+            total_break_time += (end_time - shift_data["break_start"])
 
-    total_time = end_time - shift_data["start_time"]
-    active_duty_time = max(0.0, total_time - total_break_time)
+        total_time = end_time - shift_data["start_time"]
+        active_duty_time = max(0.0, total_time - total_break_time)
 
-    last_shifts[user_id] = active_duty_time
-    total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
-    shift_leaderboard_data[user_id] = total_cumulative
+        last_shifts[user_id] = active_duty_time
+        total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
+        shift_leaderboard_data[user_id] = total_cumulative
+
+        save_shift_data()
 
     guild = bot.get_guild(GUILD_ID)
     if not guild:
@@ -651,6 +933,8 @@ async def api_shift_end_handler(request: web.Request) -> web.Response:
 
 async def api_arrest_handler(request: web.Request) -> web.Response:
     user_id = get_auth_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": "Unauthorized"}, status=401)
 
     suspect = ""
     reason = ""
@@ -735,9 +1019,9 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
 
     try:
         if files:
-            await channel.send(content=content, files=files, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+            await safe_send(channel, content=content, files=files, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
         else:
-            await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+            await safe_send(channel, content=content, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -752,16 +1036,20 @@ async def api_arrest_handler(request: web.Request) -> web.Response:
         "description": reason,
         "timestamp": time.time() * 1000
     }
-    records_list.insert(0, new_record)
-    save_shift_data()
+    async with shift_lock:
+        records_list.insert(0, new_record)
+        save_shift_data()
 
     # Award $10 merit points for arrest
-    add_merit_points(user_id, 10, source="Arrest", description="Arrest log submitted via web panel")
+    async with merit_lock:
+        add_merit_points(user_id, 10, source="Arrest", description="Arrest log submitted via web panel")
 
     return web.json_response({"success": True, "merit_earned": 10})
 
 async def api_citation_handler(request: web.Request) -> web.Response:
     user_id = get_auth_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": "Unauthorized"}, status=401)
 
     suspect = ""
     reason = ""
@@ -846,9 +1134,9 @@ async def api_citation_handler(request: web.Request) -> web.Response:
 
     try:
         if discord_file:
-            await channel.send(content=content, file=discord_file, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+            await safe_send(channel, content=content, file=discord_file, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
         else:
-            await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
+            await safe_send(channel, content=content, allowed_mentions=discord.AllowedMentions(users=[member] if member else []))
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
 
@@ -863,8 +1151,9 @@ async def api_citation_handler(request: web.Request) -> web.Response:
         "description": f"{reason} (Court: {court_date})",
         "timestamp": time.time() * 1000
     }
-    records_list.insert(0, new_record)
-    save_shift_data()
+    async with shift_lock:
+        records_list.insert(0, new_record)
+        save_shift_data()
 
     return web.json_response({"success": True})
 
@@ -908,50 +1197,53 @@ async def api_units_handler(request: web.Request) -> web.Response:
 
 async def api_unit_status_handler(request: web.Request) -> web.Response:
     user_id = get_auth_user_id(request)
+    if user_id is None:
+        return web.json_response({"error": "Unauthorized"}, status=401)
     admin_tokens = load_admin_tokens()
     auth_cookie = request.cookies.get("lasd_admin_auth")
     if not auth_cookie or auth_cookie not in admin_tokens:
         return web.json_response({"error": "Unauthorized"}, status=401)
 
-    if user_id not in active_shifts:
-        guild = bot.get_guild(GUILD_ID)
-        member = guild.get_member(user_id) if guild else None
-        if not member and guild:
-            try:
-                member = await guild.fetch_member(user_id)
-            except Exception:
-                member = None
-        raw_nick = member.nick if member and member.nick else (member.name if member else "Deputy")
-        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
-        active_shifts[user_id] = {
-            "start_time": time.time(),
-            "original_nick": original_nick,
-            "break_time": 0.0,
-            "on_break": False,
-            "break_start": 0.0,
-            "cad_status": "10-7",
-            "location": "Patrol Area 1",
-            "unit_number": f"1-A-{user_id % 100}"
-        }
-        save_shift_data()
+    async with shift_lock:
+        if user_id not in active_shifts:
+            guild = bot.get_guild(GUILD_ID)
+            member = guild.get_member(user_id) if guild else None
+            if not member and guild:
+                try:
+                    member = await guild.fetch_member(user_id)
+                except Exception:
+                    member = None
+            raw_nick = member.nick if member and member.nick else (member.name if member else "Deputy")
+            original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+            active_shifts[user_id] = {
+                "start_time": time.time(),
+                "original_nick": original_nick,
+                "break_time": 0.0,
+                "on_break": False,
+                "break_start": 0.0,
+                "cad_status": "10-7",
+                "location": "Patrol Area 1",
+                "unit_number": f"1-A-{user_id % 100}"
+            }
+            save_shift_data()
 
-    try:
-        data = await request.json()
-        new_status = data.get("status")
-        new_location = data.get("location")
-        unit_number = data.get("unit_number")
+        try:
+            data = await request.json()
+            new_status = data.get("status")
+            new_location = data.get("location")
+            unit_number = data.get("unit_number")
 
-        if new_status:
-            active_shifts[user_id]["cad_status"] = new_status
-        if new_location:
-            active_shifts[user_id]["location"] = new_location
-        if unit_number:
-            active_shifts[user_id]["unit_number"] = unit_number
+            if new_status:
+                active_shifts[user_id]["cad_status"] = new_status
+            if new_location:
+                active_shifts[user_id]["location"] = new_location
+            if unit_number:
+                active_shifts[user_id]["unit_number"] = unit_number
 
-        save_shift_data()
-        return web.json_response({"success": True})
-    except Exception as e:
-        return web.json_response({"error": str(e)}, status=400)
+            save_shift_data()
+            return web.json_response({"success": True})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=400)
 
 
 async def api_records_handler(request: web.Request) -> web.Response:
@@ -979,8 +1271,9 @@ async def api_records_post_handler(request: web.Request) -> web.Response:
             "description": data.get("description", ""),
             "timestamp": time.time() * 1000
         }
-        records_list.insert(0, new_record)
-        save_shift_data()
+        async with shift_lock:
+            records_list.insert(0, new_record)
+            save_shift_data()
         return web.json_response({"success": True, "record": new_record})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
@@ -993,9 +1286,10 @@ async def api_records_delete_handler(request: web.Request) -> web.Response:
         return web.json_response({"error": "Unauthorized"}, status=401)
     try:
         record_id = int(request.query.get('id', 0))
-        global records_list
-        records_list = [r for r in records_list if r.get('id') != record_id]
-        save_shift_data()
+        async with shift_lock:
+            global records_list
+            records_list = [r for r in records_list if r.get('id') != record_id]
+            save_shift_data()
         return web.json_response({"success": True})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
@@ -1071,6 +1365,14 @@ market_views_registered = False
 
 # Steal cooldowns: { user_id: timestamp of last steal attempt }
 steal_cooldowns = {}
+
+# Locks for thread-safe access to shared state
+shift_lock = asyncio.Lock()
+merit_lock = asyncio.Lock()
+strikes_lock = asyncio.Lock()
+records_lock = asyncio.Lock()
+verification_lock = asyncio.Lock()
+steal_lock = asyncio.Lock()
 
 
 def save_verification_data() -> bool:
@@ -1269,7 +1571,7 @@ async def apply_on_shift_nick(member: discord.Member, original_nick: str) -> boo
         allowed_len = 32 - len(PREFIX)
         new_nick = f"{PREFIX}{clean_nick[:allowed_len]}"
     try:
-        await member.edit(nick=new_nick, reason="Started staff shift")
+        await safe_edit_member(member, nick=new_nick, reason="Started staff shift")
         return True
     except (discord.Forbidden, discord.HTTPException) as e:
         print(f"Error: Could not apply shift nickname for {member} ({member.id}): {e}")
@@ -1287,7 +1589,7 @@ async def restore_nick(member: discord.Member, original_nick: str) -> bool:
         target_nick = clean_original if clean_original != member.name else None
 
         if current_nick.startswith(PREFIX) or member.nick is not None:
-            await member.edit(nick=target_nick, reason="Ended staff shift")
+            await safe_edit_member(member, nick=target_nick, reason="Ended staff shift")
         return True
     except (discord.Forbidden, discord.HTTPException) as e:
         print(f"Error: Could not restore nickname for {member} ({member.id}): {e}")
@@ -1296,33 +1598,34 @@ async def restore_nick(member: discord.Member, original_nick: str) -> bool:
 
 async def check_for_shift_farming():
     """Automatically end and report active shifts exceeding 10 hours."""
-    for user_id in list(shift_farming_alerted):
-        if user_id not in active_shifts:
-            shift_farming_alerted.discard(user_id)
+    async with shift_lock:
+        for user_id in list(shift_farming_alerted):
+            if user_id not in active_shifts:
+                shift_farming_alerted.discard(user_id)
 
-    warning_channel = bot.get_channel(SHIFT_FARMING_ALERT_CHANNEL_ID)
-    log_channel = bot.get_channel(STRIKE_LOG_CHANNEL_ID)
+        warning_channel = bot.get_channel(SHIFT_FARMING_ALERT_CHANNEL_ID)
+        log_channel = bot.get_channel(STRIKE_LOG_CHANNEL_ID)
 
-    for user_id, shift_data in list(active_shifts.items()):
-        elapsed_seconds = time.time() - shift_data["start_time"]
-        if elapsed_seconds <= SHIFT_FARMING_THRESHOLD_SECONDS or user_id in shift_farming_alerted:
-            continue
+        for user_id, shift_data in list(active_shifts.items()):
+            elapsed_seconds = time.time() - shift_data["start_time"]
+            if elapsed_seconds <= SHIFT_FARMING_THRESHOLD_SECONDS or user_id in shift_farming_alerted:
+                continue
 
-        end_time = time.time()
-        total_break_time = shift_data["break_time"]
-        if shift_data["on_break"]:
-            total_break_time += end_time - shift_data["break_start"]
+            end_time = time.time()
+            total_break_time = shift_data["break_time"]
+            if shift_data["on_break"]:
+                total_break_time += end_time - shift_data["break_start"]
 
-        active_duty_time = max(
-            0.0,
-            end_time - shift_data["start_time"] - total_break_time
-        )
-        last_shifts[user_id] = active_duty_time
-        shift_leaderboard_data[user_id] = (
-            shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
-        )
-        active_shifts.pop(user_id, None)
-        save_shift_data()
+            active_duty_time = max(
+                0.0,
+                end_time - shift_data["start_time"] - total_break_time
+            )
+            last_shifts[user_id] = active_duty_time
+            shift_leaderboard_data[user_id] = (
+                shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
+            )
+            active_shifts.pop(user_id, None)
+            save_shift_data()
 
         guild = bot.get_guild(GUILD_ID)
         member = guild.get_member(user_id) if guild else None
@@ -1332,7 +1635,8 @@ async def check_for_shift_farming():
         warning_sent = False
         if warning_channel:
             try:
-                await warning_channel.send(
+                await safe_send(
+                    warning_channel,
                     f"<@{user_id}> Your shift was automatically ended after exceeding 10 hours "
                     "because it may have been shift farming. If this was a legitimate shift, "
                     "you must start a new shift with `/shift-start`."
@@ -1355,7 +1659,8 @@ async def check_for_shift_farming():
             )
             log_embed.set_footer(text="Made by zeemonyt")
             try:
-                await log_channel.send(
+                await safe_send(
+                    log_channel,
                     embed=log_embed,
                     allowed_mentions=discord.AllowedMentions.none()
                 )
@@ -1413,8 +1718,9 @@ async def run_quota_reset(
                     passed_users.append(member.id)
 
             # Award $20 merit points to users who met quota
-            for uid in passed_users:
-                add_merit_points(uid, 20, source="Quota Bonus", description="Weekly shift quota met (≥1h30m)")
+            async with merit_lock:
+                for uid in passed_users:
+                    await add_merit_points(uid, 20, source="Quota Bonus", description="Weekly shift quota met (≥1h30m)")
 
             report_text = "**Weekly Quota Summary Report (Saturday Reset - CST)**\n\n"
             if failed_users:
@@ -1432,12 +1738,14 @@ async def run_quota_reset(
             )
             embed.set_footer(text="Made by zeemonyt")
             try:
-                await channel.send(embed=embed)
+                await safe_send(channel, embed=embed)
             except discord.Forbidden:
                 print("Error: Could not send weekly reset report to quota log channel.")
 
-    shift_leaderboard_data.clear()
-    last_shifts.clear()
+    async with shift_lock:
+        shift_leaderboard_data.clear()
+        last_shifts.clear()
+        save_shift_data()
     print(f"Weekly shift leaderboard successfully reset for {reset_date} (force={force}).")
     return True
 
@@ -1619,12 +1927,14 @@ class RobloxUsernameModal(discord.ui.Modal, title="Roblox Verification"):
             "guild_id": interaction.guild.id,
             "created_at": int(time.time())
         }
-        pending_verifications[interaction.user.id] = request
-        save_verification_data()
+        async with verification_lock:
+            pending_verifications[interaction.user.id] = request
+            save_verification_data()
 
         verification_view = VerificationCodeView()
         try:
-            await interaction.user.send(
+            await safe_send_dm(
+                interaction.user,
                 embed=verification_embed(request),
                 view=verification_view,
                 allowed_mentions=discord.AllowedMentions.none()
@@ -1773,17 +2083,18 @@ class VerificationCodeView(discord.ui.View):
         user_id = self.user_id if self.user_id is not None else interaction.user.id
         await interaction.response.defer()
 
-        request = pending_verifications.get(user_id)
-        if not request:
-            await interaction.followup.send(
-                "This verification request has expired. Click **Verify now** to start again.",
-                ephemeral=bool(interaction.guild)
-            )
-            return
+        async with verification_lock:
+            request = pending_verifications.get(user_id)
+            if not request:
+                await interaction.followup.send(
+                    "This verification request has expired. Click **Verify now** to start again.",
+                    ephemeral=bool(interaction.guild)
+                )
+                return
 
-        request["code"] = generate_verification_code()
-        request["created_at"] = int(time.time())
-        save_verification_data()
+            request["code"] = generate_verification_code()
+            request["created_at"] = int(time.time())
+            save_verification_data()
         await interaction.edit_original_response(
             embed=verification_embed(request),
             view=VerificationCodeView(self.user_id)
@@ -1795,13 +2106,15 @@ class VerificationCodeView(discord.ui.View):
 
         await interaction.response.defer()
         user_id = self.user_id if self.user_id is not None else interaction.user.id
-        request = pending_verifications.get(user_id)
-        if not request:
-            await interaction.followup.send(
-                "This verification request has expired. Click **Verify now** to start again.",
-                ephemeral=bool(interaction.guild)
-            )
-            return
+
+        async with verification_lock:
+            request = pending_verifications.get(user_id)
+            if not request:
+                await interaction.followup.send(
+                    "This verification request has expired. Click **Verify now** to start again.",
+                    ephemeral=bool(interaction.guild)
+                )
+                return
 
         try:
             roblox_profile = await fetch_roblox_profile(request["roblox_user_id"])
@@ -1849,7 +2162,7 @@ class VerificationCodeView(discord.ui.View):
             return
 
         try:
-            await member.add_roles(role, reason="Roblox bio verification completed")
+            await safe_add_roles(member, role, reason="Roblox bio verification completed")
         except (discord.Forbidden, discord.HTTPException):
             await interaction.followup.send(
                 "I couldn't assign the verification role. Please contact an administrator.",
@@ -1859,7 +2172,8 @@ class VerificationCodeView(discord.ui.View):
 
         nickname_updated = True
         try:
-            await member.edit(
+            await safe_edit_member(
+                member,
                 nick=request["roblox_username"],
                 reason="Set nickname to verified Roblox username"
             )
@@ -1870,8 +2184,9 @@ class VerificationCodeView(discord.ui.View):
                 f"{user_id}."
             )
 
-        pending_verifications.pop(user_id, None)
-        save_verification_data()
+        async with verification_lock:
+            pending_verifications.pop(user_id, None)
+            save_verification_data()
         result_message = (
             f"Verification complete. You received the <@&{VERIFIED_ROLE_ID}> role "
             f"and your nickname was set to **{request['roblox_username']}**."
@@ -2072,7 +2387,7 @@ class MarketConfirmView(discord.ui.View):
             return
 
         # Deduct points
-        new_balance = remove_merit_points(user_id, self.item['price'], source="Market Purchase", description=f"Purchased: {self.item['name']}")
+        new_balance = await remove_merit_points(user_id, self.item['price'], source="Market Purchase", description=f"Purchased: {self.item['name']}")
 
         # Assign role if applicable
         role_assigned = False
@@ -2083,7 +2398,7 @@ class MarketConfirmView(discord.ui.View):
             member = guild.get_member(user_id)
             if role and member:
                 try:
-                    await member.add_roles(role, reason=f"Market purchase: {self.item['name']}")
+                    await safe_add_roles(member, role, reason=f"Market purchase: {self.item['name']}")
                     role_assigned = True
 
                     duration = self.item.get('duration', 'N/A')
@@ -2168,9 +2483,9 @@ async def remove_role_after_duration(guild: discord.Guild, member: discord.Membe
         await asyncio.sleep(duration_seconds)
         # Re-fetch member in case they left/rejoined
         try:
-            member = guild.get_member(member.id) or await guild.fetch_member(member.id)
+            member = guild.get_member(member.id) or await safe_fetch_member(guild, member.id)
             if member and role in member.roles:
-                await member.remove_roles(role, reason=f"Market purchase expired: {role.name}")
+                await safe_remove_roles(member, role, reason=f"Market purchase expired: {role.name}")
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
     except asyncio.CancelledError:
@@ -2207,7 +2522,8 @@ async def ensure_market_message() -> None:
 
     # Check if message already exists (we could persist the ID, but for now just send new)
     try:
-        message = await channel.send(
+        message = await safe_send(
+            channel,
             embed=market_embed(),
             view=MarketBuyView(),
             allowed_mentions=discord.AllowedMentions.none()
@@ -2259,7 +2575,8 @@ async def ensure_verification_message() -> None:
             return
 
     try:
-        message = await channel.send(
+        message = await safe_send(
+            channel,
             "Backup verification system",
             view=VerificationStartView(),
             allowed_mentions=discord.AllowedMentions.none()
@@ -2323,7 +2640,7 @@ async def on_member_join(member):
     role = member.guild.get_role(1545126033433559140)
     if role:
         try:
-            await member.add_roles(role)
+            await safe_add_roles(member, role)
             print(f"Assigned @Unverified to {member.name}, has just joined.")
         except discord.Forbidden:
             print(
@@ -2357,11 +2674,18 @@ class AutoModRule:
             pat = pat.strip()
             if not pat:
                 continue
-            escaped = re.escape(pat).replace(r'\*', '.*')
+            # Escape special regex chars, but treat * as wildcard
             if '*' in pat:
-                regex_str = rf"(?:^|\s){escaped}(?:\s|$)"
+                # Split by * and escape each part, then join with .*
+                parts = pat.split('*')
+                escaped_parts = [re.escape(p) for p in parts]
+                escaped = '.*'.join(escaped_parts)
+                # Match at word boundaries or string boundaries, allowing punctuation
+                regex_str = rf"(?:^|(?<=[\s\W])){escaped}(?:(?=[\s\W])|$)"
             else:
-                regex_str = rf"(?:^|\b){escaped}(?:\b|$)"
+                escaped = re.escape(pat)
+                # Match whole words, allowing punctuation around them
+                regex_str = rf"(?:^|(?<=[\s\W])){escaped}(?:(?=[\s\W])|$)"
             try:
                 self.compiled_patterns.append((pat, re.compile(regex_str, re.IGNORECASE)))
             except Exception:
@@ -2448,7 +2772,7 @@ async def on_message(message: discord.Message):
         now = int(time.time())
 
         try:
-            await message.delete()
+            await safe_delete(message)
         except discord.HTTPException:
             pass
 
@@ -2478,7 +2802,7 @@ async def on_message(message: discord.Message):
 
         full_dm = f"{dm_msg} **{action_str}**"
         try:
-            await message.author.send(full_dm)
+            await safe_send_dm(message.author, full_dm)
         except discord.HTTPException:
             pass
 
@@ -2511,7 +2835,7 @@ async def on_message(message: discord.Message):
             )
             embed.set_footer(text="Made by zeemonyt")
             try:
-                await log_channel.send(embed=embed)
+                await safe_send(log_channel, embed=embed)
             except discord.HTTPException:
                 pass
 
@@ -2545,29 +2869,30 @@ async def shift_start(interaction: discord.Interaction):
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
 
-    if user_id in active_shifts:
-        embed = discord.Embed(
-            title="Shift Error",
-            description="You are already on an active shift! Use `/shift-end` to finish your shift.",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Made by zeemonyt")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
+    async with shift_lock:
+        if user_id in active_shifts:
+            embed = discord.Embed(
+                title="Shift Error",
+                description="You are already on an active shift! Use `/shift-end` to finish your shift.",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
-    await interaction.response.defer()
+        await interaction.response.defer()
 
-    raw_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
-    original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+        raw_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
+        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
 
-    active_shifts[user_id] = {
-        "start_time": time.time(),
-        "original_nick": original_nick,
-        "break_time": 0.0,
-        "on_break": False,
-        "break_start": 0.0
-    }
-    save_shift_data()
+        active_shifts[user_id] = {
+            "start_time": time.time(),
+            "original_nick": original_nick,
+            "break_time": 0.0,
+            "on_break": False,
+            "break_start": 0.0
+        }
+        save_shift_data()
 
     nick_updated = await apply_on_shift_nick(interaction.user, original_nick)
 
@@ -2597,44 +2922,45 @@ async def shift_break(interaction: discord.Interaction):
         return
     user_id = interaction.user.id
 
-    if user_id not in active_shifts:
-        embed = discord.Embed(
-            title="Shift Error",
-            description="You do not have an active shift to pause or resume.",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Made by zeemonyt")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
+    async with shift_lock:
+        if user_id not in active_shifts:
+            embed = discord.Embed(
+                title="Shift Error",
+                description="You do not have an active shift to pause or resume.",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
-    shift_data = active_shifts[user_id]
+        shift_data = active_shifts[user_id]
 
-    if not shift_data["on_break"]:
-        shift_data["on_break"] = True
-        shift_data["break_start"] = time.time()
-        save_shift_data()
+        if not shift_data["on_break"]:
+            shift_data["on_break"] = True
+            shift_data["break_start"] = time.time()
+            save_shift_data()
 
-        embed = discord.Embed(
-            title="Shift On Break",
-            description=f"**Staff Member:** {interaction.user.mention}\nBreak started at <t:{int(time.time())}:R>.",
-            color=discord.Color.gold()
-        )
-        embed.set_footer(text="Made by zeemonyt")
-        await interaction.response.send_message(embed=embed)
-    else:
-        break_duration = time.time() - shift_data["break_start"]
-        shift_data["break_time"] += break_duration
-        shift_data["on_break"] = False
-        shift_data["break_start"] = 0.0
-        save_shift_data()
+            embed = discord.Embed(
+                title="Shift On Break",
+                description=f"**Staff Member:** {interaction.user.mention}\nBreak started at <t:{int(time.time())}:R>.",
+                color=discord.Color.gold()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed)
+        else:
+            break_duration = time.time() - shift_data["break_start"]
+            shift_data["break_time"] += break_duration
+            shift_data["on_break"] = False
+            shift_data["break_start"] = 0.0
+            save_shift_data()
 
-        embed = discord.Embed(
-            title="Shift Resumed",
-            description=f"**Staff Member:** {interaction.user.mention}\nWelcome back! Break duration: `{format_duration(break_duration)}`.",
-            color=discord.Color.green()
-        )
-        embed.set_footer(text="Made by zeemonyt")
-        await interaction.response.send_message(embed=embed)
+            embed = discord.Embed(
+                title="Shift Resumed",
+                description=f"**Staff Member:** {interaction.user.mention}\nWelcome back! Break duration: `{format_duration(break_duration)}`.",
+                color=discord.Color.green()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed)
 
 
 @bot.tree.command(name="shift-end", description="End your staff shift and restore your nickname.")
@@ -2650,30 +2976,31 @@ async def shift_end(interaction: discord.Interaction):
         return
     user_id = interaction.user.id
 
-    if user_id not in active_shifts:
-        embed = discord.Embed(
-            title="Shift Error",
-            description="You do not have an active shift to end.",
-            color=discord.Color.red()
-        )
-        embed.set_footer(text="Made by zeemonyt")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
+    async with shift_lock:
+        if user_id not in active_shifts:
+            embed = discord.Embed(
+                title="Shift Error",
+                description="You do not have an active shift to end.",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
-    shift_data = active_shifts.pop(user_id)
-    end_time = time.time()
+        shift_data = active_shifts.pop(user_id)
+        end_time = time.time()
 
-    total_break_time = shift_data["break_time"]
-    if shift_data["on_break"]:
-        total_break_time += (end_time - shift_data["break_start"])
+        total_break_time = shift_data["break_time"]
+        if shift_data["on_break"]:
+            total_break_time += (end_time - shift_data["break_start"])
 
-    total_time = end_time - shift_data["start_time"]
-    active_duty_time = max(0.0, total_time - total_break_time)
+        total_time = end_time - shift_data["start_time"]
+        active_duty_time = max(0.0, total_time - total_break_time)
 
-    last_shifts[user_id] = active_duty_time
-    total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
-    shift_leaderboard_data[user_id] = total_cumulative
-    save_shift_data()
+        last_shifts[user_id] = active_duty_time
+        total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
+        shift_leaderboard_data[user_id] = total_cumulative
+        save_shift_data()
 
     nick_restored = await restore_nick(interaction.user, shift_data["original_nick"])
 
@@ -2809,21 +3136,22 @@ class ShiftStatusView(discord.ui.View):
 
     async def handle_shift_start(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        if user_id in active_shifts:
-            await interaction.response.send_message("You already have an active shift!", ephemeral=True)
-            return
+        async with shift_lock:
+            if user_id in active_shifts:
+                await interaction.response.send_message("You already have an active shift!", ephemeral=True)
+                return
 
-        raw_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
-        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+            raw_nick = interaction.user.nick if interaction.user.nick else interaction.user.name
+            original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
 
-        active_shifts[user_id] = {
-            "start_time": time.time(),
-            "original_nick": original_nick,
-            "break_time": 0.0,
-            "on_break": False,
-            "break_start": 0.0
-        }
-        save_shift_data()
+            active_shifts[user_id] = {
+                "start_time": time.time(),
+                "original_nick": original_nick,
+                "break_time": 0.0,
+                "on_break": False,
+                "break_start": 0.0
+            }
+            save_shift_data()
         await apply_on_shift_nick(interaction.user, original_nick)
 
         embed = discord.Embed(
@@ -2836,23 +3164,24 @@ class ShiftStatusView(discord.ui.View):
 
     async def handle_break(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        if user_id not in active_shifts:
-            await interaction.response.send_message("You don't have an active shift!", ephemeral=True)
-            return
+        async with shift_lock:
+            if user_id not in active_shifts:
+                await interaction.response.send_message("You don't have an active shift!", ephemeral=True)
+                return
 
-        shift_data = active_shifts[user_id]
-        if not shift_data["on_break"]:
-            shift_data["on_break"] = True
-            shift_data["break_start"] = time.time()
-            status = "Break started"
-        else:
-            break_duration = time.time() - shift_data["break_start"]
-            shift_data["break_time"] += break_duration
-            shift_data["on_break"] = False
-            shift_data["break_start"] = 0.0
-            status = f"Break ended ({format_duration(break_duration)})"
+            shift_data = active_shifts[user_id]
+            if not shift_data["on_break"]:
+                shift_data["on_break"] = True
+                shift_data["break_start"] = time.time()
+                status = "Break started"
+            else:
+                break_duration = time.time() - shift_data["break_start"]
+                shift_data["break_time"] += break_duration
+                shift_data["on_break"] = False
+                shift_data["break_start"] = 0.0
+                status = f"Break ended ({format_duration(break_duration)})"
 
-        save_shift_data()
+            save_shift_data()
         embed = discord.Embed(
             title=f"☕ {status}",
             description=f"Break status updated at <t:{int(time.time())}:F>",
@@ -2863,23 +3192,24 @@ class ShiftStatusView(discord.ui.View):
 
     async def handle_end_shift(self, interaction: discord.Interaction):
         user_id = interaction.user.id
-        if user_id not in active_shifts:
-            await interaction.response.send_message("You don't have an active shift!", ephemeral=True)
-            return
+        async with shift_lock:
+            if user_id not in active_shifts:
+                await interaction.response.send_message("You don't have an active shift!", ephemeral=True)
+                return
 
-        shift_data = active_shifts.pop(user_id)
-        end_time = time.time()
-        total_break_time = shift_data["break_time"]
-        if shift_data["on_break"]:
-            total_break_time += (end_time - shift_data["break_start"])
+            shift_data = active_shifts.pop(user_id)
+            end_time = time.time()
+            total_break_time = shift_data["break_time"]
+            if shift_data["on_break"]:
+                total_break_time += (end_time - shift_data["break_start"])
 
-        total_time = end_time - shift_data["start_time"]
-        active_duty_time = max(0.0, total_time - total_break_time)
+            total_time = end_time - shift_data["start_time"]
+            active_duty_time = max(0.0, total_time - total_break_time)
 
-        last_shifts[user_id] = active_duty_time
-        total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
-        shift_leaderboard_data[user_id] = total_cumulative
-        save_shift_data()
+            last_shifts[user_id] = active_duty_time
+            total_cumulative = shift_leaderboard_data.get(user_id, 0.0) + active_duty_time
+            shift_leaderboard_data[user_id] = total_cumulative
+            save_shift_data()
 
         await restore_nick(interaction.user, shift_data["original_nick"])
 
@@ -2970,56 +3300,59 @@ async def shift_choose(
     target_id = target.id
 
     if action == "start":
-        if target_id in active_shifts:
-            await interaction.response.send_message(f"{target.mention} already has an active shift!", ephemeral=True)
-            return
-        raw_nick = target.nick if target.nick else target.name
-        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
-        active_shifts[target_id] = {
-            "start_time": time.time(),
-            "original_nick": original_nick,
-            "break_time": 0.0,
-            "on_break": False,
-            "break_start": 0.0
-        }
-        save_shift_data()
+        async with shift_lock:
+            if target_id in active_shifts:
+                await interaction.response.send_message(f"{target.mention} already has an active shift!", ephemeral=True)
+                return
+            raw_nick = target.nick if target.nick else target.name
+            original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+            active_shifts[target_id] = {
+                "start_time": time.time(),
+                "original_nick": original_nick,
+                "break_time": 0.0,
+                "on_break": False,
+                "break_start": 0.0
+            }
+            save_shift_data()
         await apply_on_shift_nick(target, original_nick)
         await interaction.response.send_message(f"🟢 Started shift for {target.mention}", ephemeral=(target != interaction.user))
 
     elif action == "end":
-        if target_id not in active_shifts:
-            await interaction.response.send_message(f"{target.mention} doesn't have an active shift!", ephemeral=True)
-            return
-        shift_data = active_shifts.pop(target_id)
-        end_time = time.time()
-        total_break_time = shift_data["break_time"]
-        if shift_data["on_break"]:
-            total_break_time += (end_time - shift_data["break_start"])
-        total_time = end_time - shift_data["start_time"]
-        active_duty_time = max(0.0, total_time - total_break_time)
-        last_shifts[target_id] = active_duty_time
-        total_cumulative = shift_leaderboard_data.get(target_id, 0.0) + active_duty_time
-        shift_leaderboard_data[target_id] = total_cumulative
-        save_shift_data()
+        async with shift_lock:
+            if target_id not in active_shifts:
+                await interaction.response.send_message(f"{target.mention} doesn't have an active shift!", ephemeral=True)
+                return
+            shift_data = active_shifts.pop(target_id)
+            end_time = time.time()
+            total_break_time = shift_data["break_time"]
+            if shift_data["on_break"]:
+                total_break_time += (end_time - shift_data["break_start"])
+            total_time = end_time - shift_data["start_time"]
+            active_duty_time = max(0.0, total_time - total_break_time)
+            last_shifts[target_id] = active_duty_time
+            total_cumulative = shift_leaderboard_data.get(target_id, 0.0) + active_duty_time
+            shift_leaderboard_data[target_id] = total_cumulative
+            save_shift_data()
         await restore_nick(target, shift_data["original_nick"])
         await interaction.response.send_message(f"🔴 Ended shift for {target.mention} — `{format_duration(active_duty_time)}` logged", ephemeral=(target != interaction.user))
 
     elif action == "break":
-        if target_id not in active_shifts:
-            await interaction.response.send_message(f"{target.mention} doesn't have an active shift!", ephemeral=True)
-            return
-        shift_data = active_shifts[target_id]
-        if not shift_data["on_break"]:
-            shift_data["on_break"] = True
-            shift_data["break_start"] = time.time()
-            status = "Break started"
-        else:
-            break_duration = time.time() - shift_data["break_start"]
-            shift_data["break_time"] += break_duration
-            shift_data["on_break"] = False
-            shift_data["break_start"] = 0.0
-            status = f"Break ended ({format_duration(break_duration)})"
-        save_shift_data()
+        async with shift_lock:
+            if target_id not in active_shifts:
+                await interaction.response.send_message(f"{target.mention} doesn't have an active shift!", ephemeral=True)
+                return
+            shift_data = active_shifts[target_id]
+            if not shift_data["on_break"]:
+                shift_data["on_break"] = True
+                shift_data["break_start"] = time.time()
+                status = "Break started"
+            else:
+                break_duration = time.time() - shift_data["break_start"]
+                shift_data["break_time"] += break_duration
+                shift_data["on_break"] = False
+                shift_data["break_start"] = 0.0
+                status = f"Break ended ({format_duration(break_duration)})"
+            save_shift_data()
         await interaction.response.send_message(f"☕ {status} for {target.mention}", ephemeral=(target != interaction.user))
 
     elif action == "active":
@@ -3292,23 +3625,24 @@ async def money_steal(
 
     # Check 24-hour cooldown
     now = time.time()
-    last_attempt = steal_cooldowns.get(user_id, 0)
-    cooldown_seconds = 24 * 60 * 60  # 24 hours
-    if now - last_attempt < cooldown_seconds:
-        remaining = cooldown_seconds - (now - last_attempt)
-        hours = int(remaining // 3600)
-        minutes = int((remaining % 3600) // 60)
-        embed = discord.Embed(
-            title="⏳ Cooldown Active",
-            description=f"You must wait **{hours}h {minutes}m** before attempting another steal.",
-            color=discord.Color.orange()
-        )
-        embed.set_footer(text="Made by zeemonyt")
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-        return
+    async with steal_lock:
+        last_attempt = steal_cooldowns.get(user_id, 0)
+        cooldown_seconds = 24 * 60 * 60  # 24 hours
+        if now - last_attempt < cooldown_seconds:
+            remaining = cooldown_seconds - (now - last_attempt)
+            hours = int(remaining // 3600)
+            minutes = int((remaining % 3600) // 60)
+            embed = discord.Embed(
+                title="⏳ Cooldown Active",
+                description=f"You must wait **{hours}h {minutes}m** before attempting another steal.",
+                color=discord.Color.orange()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
-    # Update cooldown
-    steal_cooldowns[user_id] = now
+        # Update cooldown
+        steal_cooldowns[user_id] = now
 
     user_id = interaction.user.id
     target_id = target.id
@@ -3330,65 +3664,79 @@ async def money_steal(
     win_chance = STEAL_WIN_CHANCES.get(amount, 3.00)
     roll = random.random() * 100
 
-    if roll <= win_chance:
-        # SUCCESS - steal the money
-        merit_points[user_id] = user_balance + amount
-        merit_points[target_id] = target_balance - amount
-        save_merit_points()
+    async with merit_lock:
+        user_balance = merit_points.get(user_id, 0)
+        target_balance = merit_points.get(target_id, 0)
 
-        # Log transactions
-        for uid, amt, src, desc in [
-            (user_id, amount, "Steal", f"Stole from {target.display_name}"),
-            (target_id, -amount, "Stolen", f"Stolen by {interaction.user.display_name}")
-        ]:
-            if uid not in merit_transactions:
-                merit_transactions[uid] = []
-            merit_transactions[uid].append({
-                "amount": amt,
-                "source": src,
-                "description": desc,
-                "timestamp": int(time.time())
-            })
-        save_merit_transactions()
+        if target_balance < amount:
+            embed = discord.Embed(
+                title="Insufficient Funds",
+                description=f"{target.mention} only has **{target_balance:,} Պ**. You cannot steal more than they have.",
+                color=discord.Color.red()
+            )
+            embed.set_footer(text="Made by zeemonyt")
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
 
-        embed = discord.Embed(
-            title="💰 Steal Successful!",
-            description=(
-                f"You successfully stole **{amount:,} Պ** from {target.mention}!\n\n"
-                f"**Your New Balance:** {merit_points[user_id]:,} Պ\n"
-                f"**{target.display_name}'s New Balance:** {merit_points[target_id]:,} Պ\n\n"
-                f"*Win chance was {win_chance:.2f}%*"
-            ),
-            color=discord.Color.green()
-        )
-    else:
-        # FAIL - lose half the amount (or all if less)
-        penalty = max(1, amount // 2)
-        actual_penalty = min(penalty, user_balance)
-        merit_points[user_id] = user_balance - actual_penalty
-        save_merit_points()
+        if roll <= win_chance:
+            # SUCCESS - steal the money
+            merit_points[user_id] = user_balance + amount
+            merit_points[target_id] = target_balance - amount
+            save_merit_points()
 
-        if actual_penalty > 0:
-            if user_id not in merit_transactions:
-                merit_transactions[user_id] = []
-            merit_transactions[user_id].append({
-                "amount": -actual_penalty,
-                "source": "Steal Failed",
-                "description": f"Failed to steal from {target.display_name}",
-                "timestamp": int(time.time())
-            })
+            # Log transactions
+            for uid, amt, src, desc in [
+                (user_id, amount, "Steal", f"Stole from {target.display_name}"),
+                (target_id, -amount, "Stolen", f"Stolen by {interaction.user.display_name}")
+            ]:
+                if uid not in merit_transactions:
+                    merit_transactions[uid] = []
+                merit_transactions[uid].append({
+                    "amount": amt,
+                    "source": src,
+                    "description": desc,
+                    "timestamp": int(time.time())
+                })
             save_merit_transactions()
 
-        embed = discord.Embed(
-            title="💸 Steal Failed!",
-            description=(
-                f"You failed to steal from {target.mention} and lost **{actual_penalty:,} Պ** as penalty!\n\n"
-                f"**Your New Balance:** {merit_points[user_id]:,} П\n"
-                f"**{target.display_name}'s Balance:** {target_balance:,} П (unchanged)\n\n"
-                f"*Win chance was {win_chance:.2f}%*"
-            ),
-            color=discord.Color.red()
-        )
+            embed = discord.Embed(
+                title="💰 Steal Successful!",
+                description=(
+                    f"You successfully stole **{amount:,} Պ** from {target.mention}!\n\n"
+                    f"**Your New Balance:** {merit_points[user_id]:,} Պ\n"
+                    f"**{target.display_name}'s New Balance:** {merit_points[target_id]:,} Պ\n\n"
+                    f"*Win chance was {win_chance:.2f}%*"
+                ),
+                color=discord.Color.green()
+            )
+        else:
+            # FAIL - lose half the amount (or all if less)
+            penalty = max(1, amount // 2)
+            actual_penalty = min(penalty, user_balance)
+            merit_points[user_id] = user_balance - actual_penalty
+            save_merit_points()
+
+            if actual_penalty > 0:
+                if user_id not in merit_transactions:
+                    merit_transactions[user_id] = []
+                merit_transactions[user_id].append({
+                    "amount": -actual_penalty,
+                    "source": "Steal Failed",
+                    "description": f"Failed to steal from {target.display_name}",
+                    "timestamp": int(time.time())
+                })
+                save_merit_transactions()
+
+            embed = discord.Embed(
+                title="💸 Steal Failed!",
+                description=(
+                    f"You failed to steal from {target.mention} and lost **{actual_penalty:,} Պ** as penalty!\n\n"
+                    f"**Your New Balance:** {merit_points[user_id]:,} Պ\n"
+                    f"**{target.display_name}'s Balance:** {target_balance:,} Պ (unchanged)\n\n"
+                    f"*Win chance was {win_chance:.2f}%*"
+                ),
+                color=discord.Color.red()
+            )
 
     embed.set_footer(text="Made by zeemonyt")
     await interaction.response.send_message(embed=embed)
@@ -3427,7 +3775,8 @@ async def market_command(
             return
 
     try:
-        message = await target_channel.send(
+        message = await safe_send(
+            target_channel,
             embed=market_embed(),
             view=MarketBuyView(),
             allowed_mentions=discord.AllowedMentions.none()
@@ -3505,7 +3854,7 @@ async def money_admin(
             return
 
     if action == "add":
-        new_total = add_merit_points(target_id, parsed_amount, source="Admin", description=f"Added by {interaction.user.display_name}")
+        new_total = await add_merit_points(target_id, parsed_amount, source="Admin", description=f"Added by {interaction.user.display_name}")
 
         embed = discord.Embed(
             title="Admin Action: Money Added",
@@ -3519,7 +3868,7 @@ async def money_admin(
         await interaction.response.send_message(embed=embed)
 
     elif action == "remove":
-        new_total = remove_merit_points(target_id, parsed_amount, source="Admin", description=f"Removed by {interaction.user.display_name}")
+        new_total = await remove_merit_points(target_id, parsed_amount, source="Admin", description=f"Removed by {interaction.user.display_name}")
 
         embed = discord.Embed(
             title="Admin Action: Money Removed",
@@ -3621,26 +3970,27 @@ async def shift_admin(
     action = option.value
 
     if action == "start_shift":
-        if target_id in active_shifts:
-            embed = discord.Embed(
-                title="Admin Override Error",
-                description=f"{user.mention} is already on an active shift.",
-                color=discord.Color.red()
-            )
-            embed.set_footer(text="Made by zeemonyt")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
+        async with shift_lock:
+            if target_id in active_shifts:
+                embed = discord.Embed(
+                    title="Admin Override Error",
+                    description=f"{user.mention} is already on an active shift.",
+                    color=discord.Color.red()
+                )
+                embed.set_footer(text="Made by zeemonyt")
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
 
-        raw_nick = user.nick if user.nick else user.name
-        original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
-        active_shifts[target_id] = {
-            "start_time": time.time(),
-            "original_nick": original_nick,
-            "break_time": 0.0,
-            "on_break": False,
-            "break_start": 0.0
-        }
-        save_shift_data()
+            raw_nick = user.nick if user.nick else user.name
+            original_nick = raw_nick[len(PREFIX):] if raw_nick.startswith(PREFIX) else raw_nick
+            active_shifts[target_id] = {
+                "start_time": time.time(),
+                "original_nick": original_nick,
+                "break_time": 0.0,
+                "on_break": False,
+                "break_start": 0.0
+            }
+            save_shift_data()
         await apply_on_shift_nick(user, original_nick)
 
         embed = discord.Embed(
@@ -3652,30 +4002,31 @@ async def shift_admin(
         await interaction.response.send_message(embed=embed)
 
     elif action == "end_shift":
-        if target_id not in active_shifts:
-            embed = discord.Embed(
-                title="Admin Override Error",
-                description=f"{user.mention} does not have an active shift.",
-                color=discord.Color.red()
-            )
-            embed.set_footer(text="Made by zeemonyt")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
+        async with shift_lock:
+            if target_id not in active_shifts:
+                embed = discord.Embed(
+                    title="Admin Override Error",
+                    description=f"{user.mention} does not have an active shift.",
+                    color=discord.Color.red()
+                )
+                embed.set_footer(text="Made by zeemonyt")
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
 
-        shift_data = active_shifts.pop(target_id)
-        end_time = time.time()
+            shift_data = active_shifts.pop(target_id)
+            end_time = time.time()
 
-        total_break_time = shift_data["break_time"]
-        if shift_data["on_break"]:
-            total_break_time += (end_time - shift_data["break_start"])
+            total_break_time = shift_data["break_time"]
+            if shift_data["on_break"]:
+                total_break_time += (end_time - shift_data["break_start"])
 
-        total_time = end_time - shift_data["start_time"]
-        active_duty_time = max(0.0, total_time - total_break_time)
+            total_time = end_time - shift_data["start_time"]
+            active_duty_time = max(0.0, total_time - total_break_time)
 
-        last_shifts[target_id] = active_duty_time
-        total_cumulative = shift_leaderboard_data.get(target_id, 0.0) + active_duty_time
-        shift_leaderboard_data[target_id] = total_cumulative
-        save_shift_data()
+            last_shifts[target_id] = active_duty_time
+            total_cumulative = shift_leaderboard_data.get(target_id, 0.0) + active_duty_time
+            shift_leaderboard_data[target_id] = total_cumulative
+            save_shift_data()
 
         await restore_nick(user, shift_data["original_nick"])
 
@@ -3709,10 +4060,11 @@ async def shift_admin(
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        current_time = shift_leaderboard_data.get(target_id, 0.0)
-        new_total = current_time + seconds_to_add
-        shift_leaderboard_data[target_id] = new_total
-        save_shift_data()
+        async with shift_lock:
+            current_time = shift_leaderboard_data.get(target_id, 0.0)
+            new_total = current_time + seconds_to_add
+            shift_leaderboard_data[target_id] = new_total
+            save_shift_data()
 
         embed = discord.Embed(
             title="Admin Action: Time Added",
@@ -3747,10 +4099,11 @@ async def shift_admin(
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
-        current_time = shift_leaderboard_data.get(target_id, 0.0)
-        new_total = max(0.0, current_time - seconds_to_remove)
-        shift_leaderboard_data[target_id] = new_total
-        save_shift_data()
+        async with shift_lock:
+            current_time = shift_leaderboard_data.get(target_id, 0.0)
+            new_total = max(0.0, current_time - seconds_to_remove)
+            shift_leaderboard_data[target_id] = new_total
+            save_shift_data()
 
         embed = discord.Embed(
             title="Admin Action: Time Removed",
@@ -3764,45 +4117,47 @@ async def shift_admin(
         await interaction.response.send_message(embed=embed)
 
     elif action == "clear_last":
-        if target_id in active_shifts:
-            shift_data = active_shifts.pop(target_id)
-            await restore_nick(user, shift_data["original_nick"])
-            embed = discord.Embed(
-                title="Admin Action: Active Shift Canceled",
-                description=f"Canceled active shift for {user.mention}. No duty time was logged.",
-                color=discord.Color.dark_red()
-            )
-        elif target_id in last_shifts:
-            last_duration = last_shifts.pop(target_id)
-            new_total = max(0.0, shift_leaderboard_data.get(target_id, 0.0) - last_duration)
-            shift_leaderboard_data[target_id] = new_total
-            embed = discord.Embed(
-                title="Admin Action: Last Shift Cleared",
-                description=f"Removed last shift duration (`{format_duration(last_duration)}`) from {user.mention}'s leaderboard profile.",
-                color=discord.Color.dark_red()
-            )
-        else:
-            embed = discord.Embed(
-                title="Admin Action Error",
-                description=f"No active shift or recent shift record found for {user.mention}.",
-                color=discord.Color.red()
-            )
-            embed.set_footer(text="Made by zeemonyt")
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
+        async with shift_lock:
+            if target_id in active_shifts:
+                shift_data = active_shifts.pop(target_id)
+                await restore_nick(user, shift_data["original_nick"])
+                embed = discord.Embed(
+                    title="Admin Action: Active Shift Canceled",
+                    description=f"Canceled active shift for {user.mention}. No duty time was logged.",
+                    color=discord.Color.dark_red()
+                )
+            elif target_id in last_shifts:
+                last_duration = last_shifts.pop(target_id)
+                new_total = max(0.0, shift_leaderboard_data.get(target_id, 0.0) - last_duration)
+                shift_leaderboard_data[target_id] = new_total
+                embed = discord.Embed(
+                    title="Admin Action: Last Shift Cleared",
+                    description=f"Removed last shift duration (`{format_duration(last_duration)}`) from {user.mention}'s leaderboard profile.",
+                    color=discord.Color.dark_red()
+                )
+            else:
+                embed = discord.Embed(
+                    title="Admin Action Error",
+                    description=f"No active shift or recent shift record found for {user.mention}.",
+                    color=discord.Color.red()
+                )
+                embed.set_footer(text="Made by zeemonyt")
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
 
-        save_shift_data()
+            save_shift_data()
         embed.set_footer(text="Made by zeemonyt")
         await interaction.response.send_message(embed=embed)
 
     elif action == "clear_all":
-        if target_id in active_shifts:
-            shift_data = active_shifts.pop(target_id)
-            await restore_nick(user, shift_data["original_nick"])
+        async with shift_lock:
+            if target_id in active_shifts:
+                shift_data = active_shifts.pop(target_id)
+                await restore_nick(user, shift_data["original_nick"])
 
-        shift_leaderboard_data.pop(target_id, None)
-        last_shifts.pop(target_id, None)
-        save_shift_data()
+            shift_leaderboard_data.pop(target_id, None)
+            last_shifts.pop(target_id, None)
+            save_shift_data()
 
         embed = discord.Embed(
             title="Admin Action: All Shift Data Cleared",
@@ -4025,7 +4380,7 @@ async def unverified_purge(
             await asyncio.sleep(dm_seconds)
             for member in targets:
                 try:
-                    await member.send(dm_message)
+                    await safe_send_dm(member, dm_message)
                 except discord.Forbidden:
                     pass
                 except discord.HTTPException:
@@ -4034,7 +4389,7 @@ async def unverified_purge(
     else:
         for member in targets:
             try:
-                await member.send(dm_message)
+                await safe_send_dm(member, dm_message)
             except discord.Forbidden:
                 pass
             except discord.HTTPException:
@@ -4061,7 +4416,7 @@ async def unverified_purge(
             )
             log_embed.set_footer(text="Made by zeemonyt")
             try:
-                await log_channel.send(embed=log_embed)
+                await safe_send(log_channel, embed=log_embed)
             except discord.Forbidden:
                 pass
 
@@ -4166,7 +4521,7 @@ async def untrained_purge(
             await asyncio.sleep(dm_seconds)
             for member in targets:
                 try:
-                    await member.send(dm_message)
+                    await safe_send_dm(member, dm_message)
                 except discord.Forbidden:
                     pass
                 except discord.HTTPException:
@@ -4175,7 +4530,7 @@ async def untrained_purge(
     else:
         for member in targets:
             try:
-                await member.send(dm_message)
+                await safe_send_dm(member, dm_message)
             except discord.Forbidden:
                 pass
             except discord.HTTPException:
@@ -4202,7 +4557,7 @@ async def untrained_purge(
             )
             log_embed.set_footer(text="Made by zeemonyt")
             try:
-                await log_channel.send(embed=log_embed)
+                await safe_send(log_channel, embed=log_embed)
             except discord.Forbidden:
                 pass
 
@@ -4288,14 +4643,14 @@ async def run_activity_check(guild: discord.Guild, message_id: int, initiated_by
 
         try:
             # Remove current rank
-            await member.remove_roles(current_role, reason="Activity check: Failed to react within 24 hours")
+            await safe_remove_roles(member, current_role, reason="Activity check: Failed to react within 24 hours")
 
             # Add next lower rank if exists
             if next_rank:
                 next_role_id, next_role_name = next_rank
                 next_role = guild.get_role(next_role_id)
                 if next_role:
-                    await member.add_roles(next_role, reason="Activity check: Demoted to next lower rank")
+                    await safe_add_roles(member, next_role, reason="Activity check: Demoted to next lower rank")
                     demoted_details.append(f"• {member.mention}: {current_role_name} → {next_role_name}")
                 else:
                     demoted_details.append(f"• {member.mention}: {current_role_name} → (removed, next role not found)")
@@ -4377,7 +4732,8 @@ async def activity_check(interaction: discord.Interaction):
 
     # Send the activity check message
     try:
-        message = await channel.send(
+        message = await safe_send(
+            channel,
             content="<@&1538076681586217031>",
             embed=discord.Embed(
                 title="Activity Check!",
@@ -4407,7 +4763,7 @@ async def activity_check(interaction: discord.Interaction):
 
     # Add checkmark reaction
     try:
-        await message.add_reaction("✅")
+        await safe_add_reaction(message, "✅")
     except discord.HTTPException as e:
         print(f"Failed to add reaction: {e}")
 
@@ -4441,7 +4797,7 @@ async def log_strike_event(guild: discord.Guild, embed: discord.Embed):
         channel = guild.get_channel(STRIKE_LOG_CHANNEL_ID)
         if channel:
             try:
-                await channel.send(embed=embed)
+                await safe_send(channel, embed=embed)
             except discord.Forbidden:
                 print(f"Error: Lacking permissions to send message in strike channel {STRIKE_LOG_CHANNEL_ID}")
 
@@ -4732,13 +5088,15 @@ async def cite(
 
     try:
         if file:
-            await channel.send(
+            await safe_send(
+                channel,
                 content=content,
                 file=file,
                 allowed_mentions=discord.AllowedMentions(users=[interaction.user])
             )
         else:
-            await channel.send(
+            await safe_send(
+                channel,
                 content=content,
                 allowed_mentions=discord.AllowedMentions(users=[interaction.user])
             )
@@ -4843,9 +5201,9 @@ async def arrest(
 
     try:
         if files:
-            await channel.send(content=content, files=files, allowed_mentions=discord.AllowedMentions(users=[interaction.user]))
+            await safe_send(channel, content=content, files=files, allowed_mentions=discord.AllowedMentions(users=[interaction.user]))
         else:
-            await channel.send(content=content, allowed_mentions=discord.AllowedMentions(users=[interaction.user]))
+            await safe_send(channel, content=content, allowed_mentions=discord.AllowedMentions(users=[interaction.user]))
     except discord.Forbidden:
         embed = discord.Embed(
             title="Arrest Log Error",
@@ -4871,7 +5229,7 @@ async def arrest(
         save_shift_data()
 
     # Award $10 merit points for arrest
-    add_merit_points(interaction.user.id, 10, source="Arrest", description="Arrest log submitted via /arrest command")
+    await add_merit_points(interaction.user.id, 10, source="Arrest", description="Arrest log submitted via /arrest command")
 
     embed = discord.Embed(
         title="Arrest Successfully Logged",
