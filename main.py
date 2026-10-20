@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import hashlib
 import time
 import random
 import datetime
@@ -8,7 +9,7 @@ import asyncio
 import tempfile
 import io
 from zoneinfo import ZoneInfo
-from aiohttp import ClientSession, ClientTimeout, web
+from aiohttp import ClientSession, ClientTimeout, TraceConfig, web
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -127,6 +128,182 @@ class RateLimitHandler:
 
 # Global rate limit handler
 rate_limiter = RateLimitHandler()
+
+
+class DiscordRateLimitMonitor:
+    """Observe Discord REST rate-limit headers without interfering with discord.py retries."""
+
+    def __init__(self):
+        self.route_buckets: dict[str, dict] = {}
+        self.global_reset_at = 0.0
+        self.last_429: dict | None = None
+
+    @staticmethod
+    def _route_label(method: str, path: str) -> str:
+        """Return a route label without exposing resource IDs or webhook tokens."""
+        safe_path = re.sub(r"/webhooks/\d+/[^/]+", "/webhooks/{id}/{token}", path)
+        safe_path = re.sub(r"(?<=/)\d+(?=/|$)", "{id}", safe_path)
+        return f"{method.upper()} {safe_path[:70]}"
+
+    @staticmethod
+    def _wait_from_headers(headers, now_wall: float) -> float:
+        for header_name in ("Retry-After", "X-RateLimit-Reset-After"):
+            value = headers.get(header_name)
+            if value is not None:
+                try:
+                    return max(0.0, float(value))
+                except (TypeError, ValueError):
+                    pass
+
+        reset_at = headers.get("X-RateLimit-Reset")
+        if reset_at is not None:
+            try:
+                return max(0.0, float(reset_at) - now_wall)
+            except (TypeError, ValueError):
+                pass
+        return 1.0
+
+    async def on_request_end(self, session, trace_config_ctx, params) -> None:
+        """Record rate-limit headers from every Discord REST response."""
+        response = params.response
+        headers = response.headers
+        remaining_header = headers.get("X-RateLimit-Remaining")
+        now_mono = time.monotonic()
+        now_wall = time.time()
+        self._prune_expired(now_mono)
+        route_label = self._route_label(response.method, response.url.path)
+        route_fingerprint = hashlib.sha256(
+            f"{response.method.upper()} {response.url.path}".encode("utf-8")
+        ).hexdigest()
+        scope = (headers.get("X-RateLimit-Scope") or "route").lower()
+
+        if response.status == 429:
+            # Ignore upstream/CDN 429s that do not carry Discord rate-limit metadata.
+            if not any(
+                headers.get(name) is not None
+                for name in (
+                    "Retry-After",
+                    "X-RateLimit-Scope",
+                    "X-RateLimit-Global",
+                    "X-RateLimit-Reset-After",
+                    "X-RateLimit-Bucket",
+                )
+            ):
+                return
+
+            wait_seconds = self._wait_from_headers(headers, now_wall)
+            is_global = (
+                (headers.get("X-RateLimit-Global") or "").lower() == "true"
+                or scope == "global"
+            )
+            reset_at = now_mono + wait_seconds
+            self.route_buckets[route_fingerprint] = {
+                "label": route_label,
+                "remaining": 0,
+                "limit": int(headers.get("X-RateLimit-Limit", 0) or 0),
+                "reset_at": reset_at,
+                "scope": "global" if is_global else scope,
+                "last_status": 429
+            }
+            self._trim_route_buckets()
+            if is_global:
+                self.global_reset_at = max(self.global_reset_at, reset_at)
+
+            self.last_429 = {
+                "at": now_wall,
+                "route": route_label,
+                "wait_seconds": wait_seconds,
+                "scope": "global" if is_global else scope,
+                "is_global": is_global
+            }
+            return
+
+        if remaining_header is None:
+            return
+
+        try:
+            remaining = int(remaining_header)
+            limit = int(headers.get("X-RateLimit-Limit", 0) or 0)
+        except (TypeError, ValueError):
+            return
+
+        reset_after = self._wait_from_headers(headers, now_wall)
+        if reset_after > 0:
+            self.route_buckets[route_fingerprint] = {
+                "label": route_label,
+                "remaining": remaining,
+                "limit": limit,
+                "reset_at": now_mono + reset_after,
+                "scope": scope,
+                "last_status": response.status
+            }
+            self._trim_route_buckets()
+        else:
+            self.route_buckets.pop(route_fingerprint, None)
+
+    def _prune_expired(self, now_mono: float) -> None:
+        expired = [
+            key for key, bucket in self.route_buckets.items()
+            if bucket["reset_at"] <= now_mono
+        ]
+        for key in expired:
+            self.route_buckets.pop(key, None)
+
+    def _trim_route_buckets(self, max_entries: int = 512) -> None:
+        """Bound memory if the bot touches many unique Discord resources."""
+        excess = len(self.route_buckets) - max_entries
+        if excess > 0:
+            earliest = sorted(
+                self.route_buckets,
+                key=lambda key: self.route_buckets[key]["reset_at"]
+            )[:excess]
+            for key in earliest:
+                self.route_buckets.pop(key, None)
+
+    def snapshot(self) -> dict:
+        """Return current active cooldowns and the last observed 429."""
+        now_mono = time.monotonic()
+        self._prune_expired(now_mono)
+
+        active_routes = sorted(
+            (
+                {
+                    **bucket,
+                    "wait_seconds": max(0.0, bucket["reset_at"] - now_mono)
+                }
+                for bucket in self.route_buckets.values()
+                if bucket["remaining"] == 0 and bucket["reset_at"] > now_mono
+            ),
+            key=lambda bucket: bucket["wait_seconds"],
+            reverse=True
+        )
+        observed_routes = sorted(
+            (
+                {
+                    **bucket,
+                    "wait_seconds": max(0.0, bucket["reset_at"] - now_mono)
+                }
+                for bucket in self.route_buckets.values()
+                if bucket["reset_at"] > now_mono
+            ),
+            key=lambda bucket: (
+                bucket["remaining"] / bucket["limit"]
+                if bucket["limit"] > 0
+                else bucket["remaining"]
+            )
+        )
+        active_global_wait = max(0.0, self.global_reset_at - now_mono)
+        return {
+            "global_wait_seconds": active_global_wait,
+            "active_routes": active_routes,
+            "observed_routes": observed_routes,
+            "last_429": dict(self.last_429) if self.last_429 else None
+        }
+
+
+rate_limit_monitor = DiscordRateLimitMonitor()
+discord_http_trace = TraceConfig()
+discord_http_trace.on_request_end.append(rate_limit_monitor.on_request_end)
 
 
 async def safe_send(channel, *args, **kwargs):
@@ -334,7 +511,11 @@ MR_PLUS_ROLE_IDS = {
 intents = discord.Intents.default()
 intents.members = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    http_trace=discord_http_trace
+)
 
 
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "LASD-Utilities-Website")
@@ -1558,6 +1739,146 @@ def is_admin(interaction: discord.Interaction) -> bool:
             return True
 
     return False
+
+
+def format_rate_limit_wait(seconds: float) -> str:
+    """Format a Discord rate-limit wait interval for command output."""
+    seconds = max(0, int(seconds + 0.999))
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        minutes, remainder = divmod(seconds, 60)
+        return f"{minutes}m {remainder}s"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, _ = divmod(remainder, 60)
+    return f"{hours}h {minutes}m"
+
+
+@bot.tree.command(name="ping", description="Show the bot's Discord gateway latency.")
+async def ping(interaction: discord.Interaction):
+    """Public latency check for any server member."""
+    latency_ms = bot.latency * 1000
+    if not bot.is_ready() or not latency_ms < float("inf"):
+        await interaction.response.send_message(
+            "The bot's gateway latency is unavailable right now.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.send_message(
+        f"Pong! Bot gateway latency: **{latency_ms:.0f} ms**."
+    )
+
+
+@bot.tree.command(
+    name="ping-admin",
+    description="Show the bot's observed Discord API rate-limit status."
+)
+async def ping_admin(interaction: discord.Interaction):
+    """Show observed API cooldowns and rate-limit headers to admins only."""
+    if not is_admin(interaction):
+        await interaction.response.send_message(
+            "You do not have permission to use this command.",
+            ephemeral=True
+        )
+        return
+
+    # Take the snapshot before acknowledging the interaction. If a global REST
+    # cooldown is active, discord.py will queue the acknowledgement until it ends.
+    status = rate_limit_monitor.snapshot()
+    embed = discord.Embed(
+        title="Discord API Rate-Limit Status",
+        color=discord.Color.orange() if (
+            status["global_wait_seconds"] or status["active_routes"]
+        ) else discord.Color.green()
+    )
+
+    global_wait = status["global_wait_seconds"]
+    if global_wait:
+        reset_unix = int(time.time() + global_wait)
+        embed.add_field(
+            name="Global cooldown",
+            value=(
+                f"Discord is rate-limiting the bot globally. "
+                f"Expected wait: **{format_rate_limit_wait(global_wait)}** "
+                f"(until <t:{reset_unix}:R>)."
+            ),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Global cooldown",
+            value="No active global cooldown is currently known.",
+            inline=False
+        )
+
+    active_routes = status["active_routes"]
+    if active_routes:
+        route_lines = []
+        for bucket in active_routes[:5]:
+            reset_unix = int(time.time() + bucket["wait_seconds"])
+            scope = bucket["scope"]
+            route_lines.append(
+                f"`{bucket['label']}` — {format_rate_limit_wait(bucket['wait_seconds'])} "
+                f"remaining (<t:{reset_unix}:R>; {scope} scope)"
+            )
+        if len(active_routes) > 5:
+            route_lines.append(f"…and {len(active_routes) - 5} more active route limit(s).")
+        embed.add_field(
+            name="Active route cooldowns",
+            value="\n".join(route_lines),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Active route cooldowns",
+            value="No exhausted route buckets are currently known.",
+            inline=False
+        )
+
+    recent_buckets = status["observed_routes"][:5]
+    if recent_buckets:
+        bucket_lines = []
+        for bucket in recent_buckets:
+            remaining = bucket["remaining"]
+            limit = bucket["limit"]
+            capacity = f"{remaining}/{limit} requests remaining" if limit else (
+                f"{remaining} requests remaining"
+            )
+            reset_unix = int(time.time() + bucket["wait_seconds"])
+            bucket_lines.append(
+                f"`{bucket['label']}` — {capacity}, resets <t:{reset_unix}:R>"
+            )
+        embed.add_field(
+            name="Recently observed route capacity",
+            value="\n".join(bucket_lines),
+            inline=False
+        )
+
+    last_429 = status["last_429"]
+    if last_429:
+        last_429_unix = int(last_429["at"])
+        embed.add_field(
+            name="Most recent 429",
+            value=(
+                f"`{last_429['route']}` — {last_429['scope']} scope, "
+                f"wait was {format_rate_limit_wait(last_429['wait_seconds'])} "
+                f"(<t:{last_429_unix}:R>)."
+            ),
+            inline=False
+        )
+    else:
+        embed.add_field(
+            name="Most recent 429",
+            value="No Discord API 429 has been observed since this bot started.",
+            inline=False
+        )
+
+    embed.set_footer(
+        text="Live Discord headers and 429 responses; future limits cannot be predicted."
+    )
+    await interaction.response.defer(ephemeral=True)
+    await interaction.edit_original_response(embed=embed)
 
 
 async def apply_on_shift_nick(member: discord.Member, original_nick: str) -> bool:

@@ -1,1 +1,2 @@
 - [Persistent Discord controls](discord-persistent-controls.md) — register view handlers before awaited startup work; a connected gateway does not mean button callbacks are ready.
+- [Discord rate-limit visibility](discord-rate-limit-visibility.md) — observe REST rate-limit headers through discord.py's aiohttp trace because the library consumes 429 retries internally.
