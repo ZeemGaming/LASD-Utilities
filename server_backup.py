@@ -392,6 +392,7 @@ class ServerBackupManager:
         integrations = []
         channels_complete = True
         member_roles_complete = True
+        member_nicknames_complete = True
         bot_member = getattr(guild, "me", None)
         if bot_member is None:
             _record_capture_warning(
@@ -441,6 +442,7 @@ class ServerBackupManager:
                 ]
                 members.append({
                     "id": str(member.id),
+                    "nickname": member.nick,
                     "roles": member_roles,
                 })
                 if member.bot:
@@ -451,6 +453,7 @@ class ServerBackupManager:
                     })
         except Exception as error:
             member_roles_complete = False
+            member_nicknames_complete = False
             _record_capture_warning(warnings, "Member role mappings", error)
 
         try:
@@ -555,6 +558,7 @@ class ServerBackupManager:
             "bots": bots,
             "channels_complete": channels_complete,
             "member_roles_complete": member_roles_complete,
+            "member_nicknames_complete": member_nicknames_complete,
             "capture_warnings": warnings,
             "limitations": [
                 "Webhook credentials are not stored; only webhook metadata is backed up.",
@@ -946,6 +950,14 @@ class ServerBackupManager:
             current_members_complete,
             report,
         )
+        if delete_newer:
+            await self._restore_member_nicknames(
+                guild,
+                snapshot,
+                member_map,
+                current_members_complete,
+                report,
+            )
         return report
 
     async def _restore_guild_settings(self, guild, snapshot, channel_map, report):
@@ -1568,6 +1580,82 @@ class ServerBackupManager:
             if changed:
                 report["updated"]["members"] = (
                     report["updated"].get("members", 0) + 1
+                )
+            if processed and processed % 25 == 0:
+                await asyncio.sleep(0.5)
+
+    async def _restore_member_nicknames(
+        self,
+        guild,
+        snapshot,
+        member_map,
+        current_members_complete,
+        report,
+    ):
+        if not current_members_complete:
+            report["warnings"].append(
+                "Nicknames were not changed because the bot could not read every current server member."
+            )
+            return
+        if not snapshot.get("member_nicknames_complete", True):
+            report["warnings"].append(
+                "Nicknames were not changed because the saved member mapping is incomplete."
+            )
+            return
+        records = snapshot.get("member_roles", [])
+        if not records or not any("nickname" in item for item in records):
+            report["warnings"].append(
+                "This backup does not contain saved nicknames; nicknames were not changed."
+            )
+            return
+
+        bot_member = guild.me
+        if not bot_member.guild_permissions.manage_nicknames:
+            report["warnings"].append(
+                "Nicknames were not restored because the bot lacks Manage Nicknames."
+            )
+            return
+
+        bot_top_position = bot_member.top_role.position
+        processed = 0
+        for record in records:
+            if "nickname" not in record:
+                report["warnings"].append(
+                    "Some member records do not include a saved nickname."
+                )
+                continue
+            member_id = record.get("id", "")
+            if not str(member_id).isdigit():
+                continue
+            member = member_map.get(int(member_id))
+            if member is None:
+                report["skipped"]["nicknames"] = (
+                    report["skipped"].get("nicknames", 0) + 1
+                )
+                continue
+            processed += 1
+            desired_nickname = record.get("nickname")
+            if member.nick == desired_nickname:
+                continue
+            if (
+                member.id == guild.owner_id
+                or member.top_role.position >= bot_top_position
+            ):
+                report["skipped"]["unmanageable_nicknames"] = (
+                    report["skipped"].get("unmanageable_nicknames", 0) + 1
+                )
+                continue
+            try:
+                await member.edit(
+                    nick=desired_nickname,
+                    reason=BACKUP_REASON,
+                )
+                report["updated"]["nicknames"] = (
+                    report["updated"].get("nicknames", 0) + 1
+                )
+            except Exception as error:
+                _record_error(
+                    report, f"Nickname for member {member.id}", error
                 )
             if processed and processed % 25 == 0:
                 await asyncio.sleep(0.5)

@@ -16,10 +16,11 @@ class FakeGuild:
     roles = []
     channels = []
     emojis = []
+    members = []
 
     async def fetch_members(self, limit=None):
-        if False:
-            yield None
+        for member in self.members:
+            yield member
 
     async def fetch_automod_rules(self):
         return []
@@ -50,15 +51,21 @@ class FakeRole:
 
 class FakeMember:
     id = 100
+    bot = False
 
     def __init__(self, roles):
         self.roles = list(roles)
+        self.nick = "Current nickname"
+        self.top_role = SimpleNamespace(position=1)
 
     async def add_roles(self, *roles, reason=None):
         self.roles.extend(role for role in roles if role not in self.roles)
 
     async def remove_roles(self, *roles, reason=None):
         self.roles = [role for role in self.roles if role not in roles]
+
+    async def edit(self, *, nick=None, reason=None):
+        self.nick = nick
 
 
 class FakeChannel:
@@ -75,6 +82,7 @@ class FakeChannel:
 class FakeRestoreGuild:
     id = 123456789012345678
     name = "Restore Test Server"
+    owner_id = 999
     members = []
     default_role = None
     emojis = []
@@ -91,13 +99,14 @@ class FakeRestoreGuild:
                 manage_guild=True,
                 manage_webhooks=True,
                 manage_emojis_and_stickers=True,
+                manage_nicknames=True,
             ),
             top_role=SimpleNamespace(position=10),
         )
 
     async def fetch_members(self, limit=None):
-        if False:
-            yield None
+        for member in self.members:
+            yield member
 
 
 class ServerBackupStorageTests(unittest.IsolatedAsyncioTestCase):
@@ -119,6 +128,17 @@ class ServerBackupStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(entry["data"]["guild_id"], str(self.guild.id))
         self.assertTrue(self.entry_exists(entry["id"]))
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
+
+    async def test_backup_records_each_member_nickname(self):
+        member = FakeMember([])
+        member.nick = "Saved nickname"
+        self.guild.members = [member]
+
+        entry = await self.manager.create_backup(self.guild, "Nickname test")
+
+        self.assertEqual(
+            entry["data"]["member_roles"][0]["nickname"], "Saved nickname"
+        )
 
     async def test_automatic_backup_counter_and_retention(self):
         with patch.object(server_backup, "AUTO_BACKUP_RETENTION", 2):
@@ -231,6 +251,35 @@ class ServerBackupStorageTests(unittest.IsolatedAsyncioTestCase):
         self.assertCountEqual(
             member.roles, [desired_role, managed_role]
         )
+
+    async def test_nicknames_restore_only_when_delete_newer_is_selected(self):
+        guild = FakeRestoreGuild()
+        member = FakeMember([])
+        member.id = 101
+        guild.members = [member]
+        backup = {
+            "data": {
+                "guild_id": str(guild.id),
+                "roles": [],
+                "channels": [],
+                "member_roles_complete": True,
+                "member_nicknames_complete": True,
+                "channels_complete": True,
+                "member_roles": [
+                    {
+                        "id": str(member.id),
+                        "nickname": "Snapshot nickname",
+                        "roles": [],
+                    }
+                ],
+            }
+        }
+
+        await self.manager.restore(guild, backup, delete_newer=False)
+        self.assertEqual(member.nick, "Current nickname")
+
+        await self.manager.restore(guild, backup, delete_newer=True)
+        self.assertEqual(member.nick, "Snapshot nickname")
 
     def entry_exists(self, entry_id):
         try:

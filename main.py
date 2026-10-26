@@ -2224,7 +2224,7 @@ async def load_backup(
         description = (
             "This will restore the selected snapshot, including saved server "
             "settings, and **delete roles and channels not present in it**. "
-            "Member roles will also be reset to the snapshot where possible."
+            "Member roles and nicknames will also be restored where possible."
         )
         if not data.get("channels_complete", True):
             description += (
@@ -2233,14 +2233,27 @@ async def load_backup(
             )
         if not data.get("member_roles_complete", True):
             description += (
-                "\nMember roles will not be reset because their saved mapping "
+                "\nMember roles and nicknames will not be restored because "
+                "their saved mapping "
                 "is incomplete."
+            )
+        if not any(
+            "nickname" in member
+            for member in data.get("member_roles", [])
+        ):
+            description += (
+                "\nThis snapshot has no nickname data, so nicknames will not change."
+            )
+        if not bot_member.guild_permissions.manage_nicknames:
+            description += (
+                "\nThe bot lacks Manage Nicknames, so nickname restoration "
+                "will be skipped."
             )
     else:
         description = (
             "Saved server settings will be restored. Newer roles and channels "
             "will be preserved; missing snapshot roles/channels will be added "
-            "and matching ones updated."
+            "and matching ones updated. Member nicknames will remain unchanged."
         )
     description += (
         f"\n\nSnapshot: **{backup['name']}**"
