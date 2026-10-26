@@ -14,6 +14,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from discord.errors import HTTPException, NotFound, Forbidden
+from server_backup import (
+    BackupPermissionError,
+    BackupStoreError,
+    ServerBackupManager,
+)
 
 
 class RateLimitHandler:
@@ -516,6 +521,10 @@ bot = commands.Bot(
     intents=intents,
     http_trace=discord_http_trace
 )
+
+backup_manager = ServerBackupManager()
+active_backup_restores: set[int] = set()
+backup_restore_tasks: set[asyncio.Task] = set()
 
 
 WEBSITE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "LASD-Utilities-Website")
@@ -1881,6 +1890,383 @@ async def ping_admin(interaction: discord.Interaction):
     await interaction.edit_original_response(embed=embed)
 
 
+def is_backup_admin(interaction: discord.Interaction) -> bool:
+    return (
+        isinstance(interaction.user, discord.Member)
+        and interaction.user.guild_permissions.administrator
+    )
+
+
+def backup_restore_summary(report: dict) -> str:
+    lines = ["Server restore finished."]
+    for section in ("created", "updated", "deleted", "skipped"):
+        counts = report.get(section, {})
+        if counts:
+            details = ", ".join(
+                f"{name}: {count}" for name, count in sorted(counts.items())
+            )
+            lines.append(f"**{section.title()}:** {details}")
+    if report.get("errors"):
+        lines.append("**Issues:** " + "; ".join(report["errors"][:8]))
+    if report.get("errors_omitted"):
+        lines.append(f"Plus {report['errors_omitted']} additional issue(s).")
+    if report.get("warnings"):
+        warnings = report["warnings"][:4]
+        lines.append("**Warnings:** " + "; ".join(warnings))
+    if report.get("limitations"):
+        lines.append("**Backup limits:** " + "; ".join(report["limitations"][:3]))
+    return "\n".join(lines)[:1900]
+
+
+async def finish_backup_restore(
+    guild: discord.Guild,
+    backup: dict,
+    delete_newer: bool,
+    user: discord.User | discord.Member,
+) -> None:
+    try:
+        report = await backup_manager.restore(
+            guild, backup, delete_newer=delete_newer
+        )
+        message = backup_restore_summary(report)
+        print(
+            f"[BACKUP] Restore {backup.get('name')} completed for guild "
+            f"{guild.id}: {message.replace(chr(10), ' | ')}"
+        )
+    except Exception as error:
+        message = f"Restore failed: {type(error).__name__}: {error}"[:1900]
+        print(
+            f"[BACKUP] Restore {backup.get('name')} failed for guild "
+            f"{guild.id}: {type(error).__name__}"
+        )
+    finally:
+        active_backup_restores.discard(guild.id)
+
+    try:
+        await user.send(message)
+    except (discord.Forbidden, discord.HTTPException) as error:
+        print(
+            f"[BACKUP] Could not DM restore report to administrator "
+            f"{user.id}: HTTP {getattr(error, 'status', 'unknown')}"
+        )
+
+
+class BackupRestoreConfirmationView(discord.ui.View):
+    def __init__(
+        self,
+        guild_id: int,
+        backup: dict,
+        delete_newer: bool,
+    ):
+        super().__init__(timeout=180)
+        self.guild_id = guild_id
+        self.backup = backup
+        self.delete_newer = delete_newer
+        self.message = None
+
+        confirm_button = discord.ui.Button(
+            label=(
+                "Confirm destructive restore"
+                if delete_newer else "Confirm restore"
+            ),
+            style=(
+                discord.ButtonStyle.danger
+                if delete_newer else discord.ButtonStyle.primary
+            ),
+        )
+        confirm_button.callback = self.confirm_restore
+        self.add_item(confirm_button)
+
+        cancel_button = discord.ui.Button(
+            label="Cancel",
+            style=discord.ButtonStyle.secondary,
+        )
+        cancel_button.callback = self.cancel_restore
+        self.add_item(cancel_button)
+
+    async def confirm_restore(self, interaction: discord.Interaction):
+        if interaction.guild_id != self.guild_id:
+            await interaction.response.send_message(
+                "This confirmation belongs to a different server.",
+                ephemeral=True,
+            )
+            return
+        if not is_backup_admin(interaction):
+            await interaction.response.send_message(
+                "Only a server Administrator can confirm a restore.",
+                ephemeral=True,
+            )
+            return
+        if self.guild_id in active_backup_restores:
+            await interaction.response.send_message(
+                "A restore is already running for this server.",
+                ephemeral=True,
+            )
+            return
+
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message(
+                "This command must be used inside the server being restored.",
+                ephemeral=True,
+            )
+            return
+
+        active_backup_restores.add(self.guild_id)
+        try:
+            await interaction.response.edit_message(
+                content=(
+                    f"Restore of **{self.backup['name']}** has started. "
+                    "The bot will DM you a completion summary."
+                ),
+                embed=None,
+                view=None,
+            )
+        except Exception:
+            active_backup_restores.discard(self.guild_id)
+            raise
+
+        task = asyncio.create_task(
+            finish_backup_restore(
+                guild,
+                self.backup,
+                self.delete_newer,
+                interaction.user,
+            )
+        )
+        backup_restore_tasks.add(task)
+        task.add_done_callback(backup_restore_tasks.discard)
+        self.stop()
+
+    async def cancel_restore(self, interaction: discord.Interaction):
+        if not is_backup_admin(interaction):
+            await interaction.response.send_message(
+                "Only a server Administrator can cancel this confirmation.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.edit_message(
+            content="Restore cancelled.",
+            embed=None,
+            view=None,
+        )
+        self.stop()
+
+    async def on_timeout(self):
+        if self.message:
+            try:
+                await self.message.edit(
+                    content="Restore confirmation expired.",
+                    embed=None,
+                    view=None,
+                )
+            except (discord.HTTPException, discord.NotFound):
+                pass
+
+
+async def backup_name_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+) -> list[app_commands.Choice[str]]:
+    if not interaction.guild or not is_backup_admin(interaction):
+        return []
+    try:
+        backups = await backup_manager.list_backups(interaction.guild.id)
+    except BackupStoreError:
+        return []
+    matching = [
+        item for item in reversed(backups)
+        if current.lower() in item.get("name", "").lower()
+    ]
+    return [
+        app_commands.Choice(
+            name=item.get("name", "Unnamed backup")[:100],
+            value=item.get("id", "")[:100],
+        )
+        for item in matching[:25]
+    ]
+
+
+@bot.tree.command(
+    name="save-backup",
+    description="Save a named snapshot of this server to backup.json."
+)
+@app_commands.guild_only()
+@app_commands.describe(name="A name for this server backup")
+async def save_backup(interaction: discord.Interaction, name: str):
+    if not is_backup_admin(interaction):
+        await interaction.response.send_message(
+            "Only a server Administrator can create server backups.",
+            ephemeral=True,
+        )
+        return
+    if not name.strip():
+        await interaction.response.send_message(
+            "Enter a name for this backup.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        await backup_manager.initialize()
+        entry = await backup_manager.create_backup(
+            interaction.guild, name=name
+        )
+    except (BackupStoreError, ValueError) as error:
+        await interaction.edit_original_response(
+            content=f"Backup failed: {error}"
+        )
+        return
+    except Exception as error:
+        print(f"[BACKUP] Manual backup failed: {type(error).__name__}")
+        await interaction.edit_original_response(
+            content=(
+                "Backup failed while reading server data. Check the bot's "
+                "server permissions and workflow logs."
+            )
+        )
+        return
+
+    data = entry["data"]
+    capture_warnings = data.get("capture_warnings", [])
+    warning_details = "; ".join(capture_warnings[:3])
+    await interaction.edit_original_response(
+        content=(
+            f"Saved **{entry['name']}** to `backup.json` "
+            f"(roles: {len(data['roles'])}, channels: {len(data['channels'])}, "
+            f"members: {len(data['member_roles'])}, AutoMod rules: "
+            f"{len(data['automod_rules'])}, webhooks: {len(data['webhooks'])}, "
+            f"emojis: {len(data['emojis'])}, stickers: {len(data['stickers'])})."
+            + (
+                f" Capture warnings: {warning_details}"
+                if capture_warnings else ""
+            )
+        )
+    )
+
+
+@bot.tree.command(
+    name="load-backup",
+    description="Restore server roles, channels, and saved configuration."
+)
+@app_commands.guild_only()
+@app_commands.describe(
+    name="Choose a saved backup",
+    delete_newer=(
+        "Delete roles/channels absent from the backup; default keeps them."
+    ),
+)
+@app_commands.autocomplete(name=backup_name_autocomplete)
+async def load_backup(
+    interaction: discord.Interaction,
+    name: str,
+    delete_newer: bool = False,
+):
+    if not is_backup_admin(interaction):
+        await interaction.response.send_message(
+            "Only a server Administrator can restore a server backup.",
+            ephemeral=True,
+        )
+        return
+    if interaction.guild is None:
+        await interaction.response.send_message(
+            "This command must be used inside the server being restored.",
+            ephemeral=True,
+        )
+        return
+    if interaction.guild.id in active_backup_restores:
+        await interaction.response.send_message(
+            "A restore is already running for this server.",
+            ephemeral=True,
+        )
+        return
+
+    bot_member = interaction.guild.me
+    if bot_member is None:
+        await interaction.response.send_message(
+            "The bot's server permissions are unavailable.",
+            ephemeral=True,
+        )
+        return
+    missing_permissions = []
+    if not bot_member.guild_permissions.manage_roles:
+        missing_permissions.append("Manage Roles")
+    if not bot_member.guild_permissions.manage_channels:
+        missing_permissions.append("Manage Channels")
+    if missing_permissions:
+        await interaction.response.send_message(
+            "The bot needs " + " and ".join(missing_permissions)
+            + " before it can restore roles and channels.",
+            ephemeral=True,
+        )
+        return
+
+    try:
+        await backup_manager.initialize()
+        backup = await backup_manager.find_backup(interaction.guild.id, name)
+    except BackupStoreError as error:
+        await interaction.response.send_message(
+            f"Could not read `backup.json`: {error}",
+            ephemeral=True,
+        )
+        return
+    if backup is None:
+        await interaction.response.send_message(
+            "That backup was not found for this server. Select a backup from "
+            "the autocomplete list.",
+            ephemeral=True,
+        )
+        return
+
+    data = backup.get("data", {})
+    if delete_newer:
+        description = (
+            "This will restore the selected snapshot, including saved server "
+            "settings, and **delete roles and channels not present in it**. "
+            "Member roles will also be reset to the snapshot where possible."
+        )
+        if not data.get("channels_complete", True):
+            description += (
+                "\n\nThe channel snapshot is incomplete, so newer channels "
+                "will be preserved."
+            )
+        if not data.get("member_roles_complete", True):
+            description += (
+                "\nMember roles will not be reset because their saved mapping "
+                "is incomplete."
+            )
+    else:
+        description = (
+            "Saved server settings will be restored. Newer roles and channels "
+            "will be preserved; missing snapshot roles/channels will be added "
+            "and matching ones updated."
+        )
+    description += (
+        f"\n\nSnapshot: **{backup['name']}**"
+        f"\nContains {len(data.get('roles', []))} roles, "
+        f"{len(data.get('channels', []))} channels, and "
+        f"{len(data.get('member_roles', []))} member role mappings."
+        "\nThe bot will DM you a completion report."
+    )
+    view = BackupRestoreConfirmationView(
+        interaction.guild.id, backup, delete_newer
+    )
+    await interaction.response.send_message(
+        embed=discord.Embed(
+            title="Confirm server restore",
+            description=description,
+            color=discord.Color.red() if delete_newer else discord.Color.orange(),
+        ),
+        view=view,
+        ephemeral=True,
+    )
+    try:
+        view.message = await interaction.original_response()
+    except discord.HTTPException:
+        pass
+
+
 async def apply_on_shift_nick(member: discord.Member, original_nick: str) -> bool:
     """Applies the 'On Shift | ' prefix to a user's nickname safely."""
     clean_nick = original_nick
@@ -2076,6 +2462,31 @@ async def run_quota_reset(
 async def weekly_quota_reset():
     await check_for_shift_farming()
     await run_quota_reset()
+
+
+@tasks.loop(hours=1)
+async def hourly_server_backup():
+    guild = bot.get_guild(GUILD_ID)
+    if guild is None:
+        print(f"[BACKUP] Hourly backup skipped; guild {GUILD_ID} is unavailable.")
+        return
+    try:
+        entry = await backup_manager.create_backup(guild, automatic=True)
+        warning_count = len(entry["data"].get("capture_warnings", []))
+        print(
+            f"[BACKUP] Created {entry['name']} for guild {guild.id}; "
+            f"{warning_count} capture warning(s)."
+        )
+    except Exception as error:
+        print(
+            f"[BACKUP] Hourly backup failed for guild {guild.id}: "
+            f"{type(error).__name__}"
+        )
+
+
+@hourly_server_backup.before_loop
+async def before_hourly_server_backup():
+    await bot.wait_until_ready()
 
 
 VERIFICATION_WORDS = [
@@ -2931,6 +3342,15 @@ async def on_ready():
         f"[BOT LOG] Registered persistent verification controls "
         f"for {len(pending_verifications)} pending request(s)."
     )
+
+    try:
+        await backup_manager.initialize()
+        print("[BACKUP] backup.json is ready.")
+    except BackupStoreError as error:
+        print(f"[BACKUP] Backup storage initialization failed: {error}")
+
+    if not hourly_server_backup.is_running():
+        hourly_server_backup.start()
 
     if not weekly_quota_reset.is_running():
         weekly_quota_reset.start()
